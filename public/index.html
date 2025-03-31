@@ -53,6 +53,15 @@
         .carousel-control-next {
             filter: brightness(1.5);
         }
+        .carousel-item {
+            transition: transform 0.5s ease-in-out;
+        }
+        @media (max-width: 768px) {
+            .custom-modal-width {
+                width: 90vw;
+                height: 90vh;
+            }
+        }
     </style>
 </head>
 <body class="p-3">
@@ -184,57 +193,46 @@
     }
 
     function showImageModal(selectedUrl) {
-        const ext = selectedUrl.split('.').pop().toLowerCase();
-        const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
+        const carouselImages = document.getElementById('carouselImages');
+        carouselImages.innerHTML = ''; // Clear existing images
 
-        if (isVideo) {
-            // Create a video element and request full screen
-            const videoElement = document.createElement('video');
-            videoElement.src = selectedUrl;
-            videoElement.controls = true;
-            videoElement.style.width = '100%';
-            videoElement.style.height = '100%';
-            document.body.appendChild(videoElement);
+        fetch('/uploads')
+            .then(res => res.json())
+            .then(files => {
+                files.reverse().forEach((file) => {
+                    const ext = file.split('.').pop().toLowerCase();
+                    const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
+                    const url = `/uploads/${file}`;
 
-            videoElement.requestFullscreen().then(() => {
-                videoElement.play();
-            }).catch(err => {
-                console.error('Error attempting to enable full-screen mode:', err);
-            });
+                    const activeClass = url === selectedUrl ? 'active' : '';
 
-            // Remove the video element when exiting full screen
-            videoElement.onfullscreenchange = () => {
-                if (!document.fullscreenElement) {
-                    videoElement.remove();
-                }
-            };
-        } else {
-            // Handle images in the modal
-            const carouselImages = document.getElementById('carouselImages');
-            carouselImages.innerHTML = ''; // Clear existing images
-
-            fetch('/uploads')
-                .then(res => res.json())
-                .then(files => {
-                    files.reverse().forEach((file) => {
-                        const fileExt = file.split('.').pop().toLowerCase();
-                        const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExt);
-                        const url = `/uploads/${file}`;
-
-                        const activeClass = url === selectedUrl ? 'active' : '';
-
-                        if (isImage) {
-                            carouselImages.insertAdjacentHTML('beforeend', `
-                                <div class="carousel-item ${activeClass}">
-                                    <img src="${url}" class="d-block w-100" alt="...">
-                                </div>
-                            `);
-                        }
-                    });
+                    if (isImage) {
+                        carouselImages.insertAdjacentHTML('beforeend', `
+                            <div class="carousel-item ${activeClass}">
+                                <img src="${url}" class="d-block w-100" alt="...">
+                            </div>
+                        `);
+                    }
                 });
 
-            const imageModal = new bootstrap.Modal(document.getElementById('imageModal'));
-            imageModal.show();
+                // Add keydown event listener for navigation
+                document.addEventListener('keydown', handleKeydown);
+            });
+
+        const imageModal = new bootstrap.Modal(document.getElementById('imageModal'));
+        imageModal.show();
+
+        // Remove event listener when modal is closed
+        document.getElementById('imageModal').addEventListener('hidden.bs.modal', () => {
+            document.removeEventListener('keydown', handleKeydown);
+        });
+    }
+
+    function handleKeydown(event) {
+        if (event.key === 'ArrowLeft') {
+            document.querySelector('.carousel-control-prev').click();
+        } else if (event.key === 'ArrowRight') {
+            document.querySelector('.carousel-control-next').click();
         }
     }
 
