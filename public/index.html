@@ -159,7 +159,10 @@
             height: auto;
         }
         #videoModal .carousel-item {
-            display: flex;
+            display: none; /* Hide all items by default */
+        }
+        #videoModal .carousel-item.active {
+            display: flex; /* Show only the active item */
             align-items: center;
             justify-content: center;
             height: 100%;
@@ -248,14 +251,6 @@
           <div class="carousel-inner" id="carouselVideos">
             <!-- Videos will be inserted here -->
           </div>
-          <button class="carousel-control-prev" type="button" data-bs-target="#videoCarousel" data-bs-slide="prev">
-            <span class="carousel-control-prev-icon" aria-hidden="true"></span>
-            <span class="visually-hidden">Previous</span>
-          </button>
-          <button class="carousel-control-next" type="button" data-bs-target="#videoCarousel" data-bs-slide="next">
-            <span class="carousel-control-next-icon" aria-hidden="true"></span>
-            <span class="visually-hidden">Next</span>
-          </button>
         </div>
       </div>
     </div>

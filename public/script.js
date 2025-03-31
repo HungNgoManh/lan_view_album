@@ -94,7 +94,6 @@ function loadGallery(filter = 'all') {
             const gallery = document.getElementById('gallery');
             gallery.innerHTML = '';
             
-            // Get file stats and sort by creation date
             const filesWithDates = await Promise.all(files.map(async file => {
                 const url = `/uploads/${file}`;
                 const response = await fetch(url, { method: 'HEAD' });
@@ -102,37 +101,44 @@ function loadGallery(filter = 'all') {
                 return { file, date: lastModified };
             }));
 
-            // Sort files by date descending
+            // Sort files by date in descending order
             filesWithDates.sort((a, b) => b.date - a.date);
             
             for (const {file} of filesWithDates) {
                 const ext = file.split('.').pop().toLowerCase();
                 const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
                 const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
-                const isAudio = ['mp3', 'wav', 'ogg'].includes(ext);
-                const thumb = isImage ? `/thumbnails/${file}` : '';
                 const url = `/uploads/${file}`;
 
-                // Filter logic
                 if (filter === 'image' && !isImage) continue;
                 if (filter === 'video' && !isVideo) continue;
                 if (filter === 'other' && (isImage || isVideo)) continue;
 
                 let media;
                 if (isImage) {
-                    media = `<img src="${thumb}" class="card-img-top" loading="lazy" onclick="showImageModal('${url}')">`;
+                    media = `<img src="${url}" class="card-img-top" loading="lazy" onclick="showImageModal('${url}')">`;
+                    gallery.insertAdjacentHTML('afterbegin', `
+                        <div class="col">
+                            <div class="card h-100">
+                                ${media}
+                            </div>
+                        </div>`);
                 } else if (isVideo) {
-                    const duration = await getVideoDuration(url);
-                    media = `
-                        <div class="position-relative">
-                            <video class="d-block w-100" preload="metadata" onclick="showImageModal('${url}')">
-                                <source src="${url}" type="video/${ext}">
-                                Your browser does not support the video tag.
-                            </video>
-                            <span class="position-absolute bottom-0 end-0 badge bg-dark m-2">
-                                ${duration}
-                            </span>
-                        </div>`;
+                    captureVideoFrame(url, function(thumbnail, duration) {
+                        media = `
+                            <div class="position-relative">
+                                <img src="${thumbnail}" class="card-img-top" onclick="showImageModal('${url}')">
+                                <span class="position-absolute bottom-0 end-0 badge bg-dark m-2">
+                                    ${duration}
+                                </span>
+                            </div>`;
+                        gallery.insertAdjacentHTML('afterbegin', `
+                            <div class="col">
+                                <div class="card h-100">
+                                    ${media}
+                                </div>
+                            </div>`);
+                    });
                 } else {
                     media = `<div class="card-body text-center">
                         <div class="small text-muted mb-2">${file}</div>
@@ -140,15 +146,13 @@ function loadGallery(filter = 'all') {
                             <i class="bi bi-download"></i> Download
                         </a>
                     </div>`;
+                    gallery.insertAdjacentHTML('afterbegin', `
+                        <div class="col">
+                            <div class="card h-100">
+                                ${media}
+                            </div>
+                        </div>`);
                 }
-
-                gallery.insertAdjacentHTML('beforeend', `
-                    <div class="col">
-                        <div class="card h-100">
-                            ${media}
-                            
-                        </div>
-                    </div>`);
             }
         });
 }
@@ -178,17 +182,31 @@ function showImageModal(selectedUrl) {
     if (isVideo) {
         // Show video in modal
         const carouselVideos = document.getElementById('carouselVideos');
-        carouselVideos.innerHTML = '';
-        const carouselItem = document.createElement('div');
-        carouselItem.className = 'carousel-item active';
-        const video = document.createElement('video');
-        video.src = selectedUrl;
-        video.className = 'd-block w-100';
-        video.controls = true;
-        video.autoplay = true;
-        carouselItem.appendChild(video);
-        carouselVideos.appendChild(carouselItem);
-        
+        carouselVideos.innerHTML = ''; // Clear existing videos
+
+        fetch('/uploads')
+            .then(res => res.json())
+            .then(files => {
+                files.forEach((file) => {
+                    const fileExt = file.split('.').pop().toLowerCase();
+                    const isVideoFile = ['mp4', 'webm', 'mov'].includes(fileExt);
+                    const url = `/uploads/${file}`;
+
+                    if (isVideoFile) {
+                        const activeClass = url === selectedUrl ? 'active' : '';
+                        const carouselItem = document.createElement('div');
+                        carouselItem.className = `carousel-item ${activeClass}`;
+                        const video = document.createElement('video');
+                        video.src = url;
+                        video.className = 'd-block w-100';
+                        video.controls = true;
+                        if (activeClass) video.autoplay = true;
+                        carouselItem.appendChild(video);
+                        carouselVideos.appendChild(carouselItem);
+                    }
+                });
+            });
+
         const videoModal = new bootstrap.Modal(document.getElementById('videoModal'));
         videoModal.show();
     } else {
@@ -250,6 +268,88 @@ document.addEventListener('DOMContentLoaded', function() {
             loadGallery(this.dataset.filter);
         });
     });
+
+    const videoModalElement = document.getElementById('videoModal');
+    const videoModal = new bootstrap.Modal(videoModalElement);
+
+    videoModalElement.addEventListener('hidden.bs.modal', function () {
+        const video = videoModalElement.querySelector('video');
+        if (video) {
+            video.pause();
+            video.currentTime = 0; // Reset the video to the start
+        }
+    });
 });
+
+function captureVideoFrame(url, callback) {
+    const video = document.createElement('video');
+    video.src = url;
+    video.crossOrigin = 'anonymous'; // Handle CORS if necessary
+    video.addEventListener('loadeddata', function() {
+        video.currentTime = 0; // Seek to the first frame
+    });
+
+    video.addEventListener('seeked', function() {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const context = canvas.getContext('2d');
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataURL = canvas.toDataURL();
+        const duration = Math.round(video.duration);
+        const minutes = Math.floor(duration / 60);
+        const seconds = duration % 60;
+        callback(dataURL, `${minutes}:${seconds.toString().padStart(2, '0')}`);
+    });
+
+    video.load(); // Ensure the video is loaded
+}
+
+// Example usage
+captureVideoFrame('path/to/video.mp4', function(thumbnail) {
+    // Use the thumbnail as needed
+    console.log(thumbnail);
+});
+
+function createFileCard(file) {
+    const card = document.createElement('div');
+    card.className = 'col';
+
+    const cardDiv = document.createElement('div');
+    cardDiv.className = 'card h-100';
+
+    const cardBody = document.createElement('div');
+    cardBody.className = 'card-body p-0';
+
+    let mediaElement;
+    if (file.type.startsWith('image/')) {
+        mediaElement = document.createElement('img');
+        mediaElement.src = file.url;
+        mediaElement.className = 'card-img-top';
+        mediaElement.onclick = () => showImageModal(file);
+    } else if (file.type.startsWith('video/')) {
+        captureVideoFrame(file.url, function(thumbnail) {
+            mediaElement = document.createElement('img');
+            mediaElement.src = thumbnail;
+            mediaElement.className = 'card-img-top';
+            mediaElement.onclick = () => showImageModal(file);
+            cardBody.appendChild(mediaElement);
+        });
+        // Add play icon overlay
+        const playIcon = document.createElement('div');
+        playIcon.className = 'position-absolute top-50 start-50 translate-middle';
+        playIcon.innerHTML = '<i class="bi bi-play-circle-fill text-white" style="font-size: 2rem;"></i>';
+        cardBody.appendChild(playIcon);
+    } else {
+        mediaElement = document.createElement('div');
+        mediaElement.className = 'card-img-top d-flex align-items-center justify-content-center bg-light';
+        mediaElement.innerHTML = '<i class="bi bi-file-earmark" style="font-size: 2rem;"></i>';
+    }
+
+    cardBody.appendChild(mediaElement);
+    cardDiv.appendChild(cardBody);
+    card.appendChild(cardDiv);
+    return card;
+}
 
 loadGallery();
