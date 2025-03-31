@@ -176,26 +176,21 @@ function showImageModal(selectedUrl) {
     const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
 
     if (isVideo) {
-        // Create a video element and request full screen
-        const videoElement = document.createElement('video');
-        videoElement.src = selectedUrl;
-        videoElement.controls = true;
-        videoElement.style.width = '100%';
-        videoElement.style.height = '100%';
-        document.body.appendChild(videoElement);
-
-        videoElement.requestFullscreen().then(() => {
-            videoElement.play();
-        }).catch(err => {
-            console.error('Error attempting to enable full-screen mode:', err);
-        });
-
-        // Remove the video element when exiting full screen
-        videoElement.onfullscreenchange = () => {
-            if (!document.fullscreenElement) {
-                videoElement.remove();
-            }
-        };
+        // Show video in modal
+        const carouselVideos = document.getElementById('carouselVideos');
+        carouselVideos.innerHTML = '';
+        const carouselItem = document.createElement('div');
+        carouselItem.className = 'carousel-item active';
+        const video = document.createElement('video');
+        video.src = selectedUrl;
+        video.className = 'd-block w-100';
+        video.controls = true;
+        video.autoplay = true;
+        carouselItem.appendChild(video);
+        carouselVideos.appendChild(carouselItem);
+        
+        const videoModal = new bootstrap.Modal(document.getElementById('videoModal'));
+        videoModal.show();
     } else {
         // Handle images in the modal with carousel
         const carouselImages = document.getElementById('carouselImages');
