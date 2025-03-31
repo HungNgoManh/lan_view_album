@@ -62,18 +62,37 @@
                 height: 90vh;
             }
         }
+        .uppy-Dashboard-Item-preview {
+            display: none;
+        }
     </style>
 </head>
 <body class="p-3">
 
 <h2 class="mb-4 text-center">📂 LAN File Album</h2>
 
-<!-- Uppy Upload Area -->
-<div id="drag-drop-area" class="mb-5"></div>
+<!-- Tabs -->
+<ul class="nav nav-tabs" id="myTab" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="view-tab" data-bs-toggle="tab" data-bs-target="#view" type="button" role="tab" aria-controls="view" aria-selected="true">View Files</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="upload-tab" data-bs-toggle="tab" data-bs-target="#upload" type="button" role="tab" aria-controls="upload" aria-selected="false">Upload Files</button>
+  </li>
+</ul>
 
-<!-- Gallery -->
-<h4>📸 Uploaded Files</h4>
-<div id="gallery" class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-6 g-3 mt-2"></div>
+<!-- Tab Content -->
+<div class="tab-content" id="myTabContent">
+  <div class="tab-pane fade show active" id="view" role="tabpanel" aria-labelledby="view-tab">
+    <!-- Gallery -->
+    <h4>📸 Uploaded Files</h4>
+    <div id="gallery" class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-6 g-3 mt-2"></div>
+  </div>
+  <div class="tab-pane fade" id="upload" role="tabpanel" aria-labelledby="upload-tab">
+    <!-- Uppy Upload Area -->
+    <div id="drag-drop-area" class="mb-5"></div>
+  </div>
+</div>
 
 <!-- Modal -->
 <div class="modal fade" id="imageModal" tabindex="-1" aria-labelledby="imageModalLabel" aria-hidden="true">
@@ -111,7 +130,20 @@
             showProgressDetails: true,
             proudlyDisplayPoweredByUppy: false,
             note: 'Images, Videos, Audios, Documents supported',
-            height: 300
+            height: 300,
+            hideUploadButton: false,
+            hideProgressAfterFinish: true,
+            showLinkToFileUploadResult: false,
+            showRemoveButtonAfterComplete: true,
+            thumbnailWidth: false, // Disable thumbnail generation
+            showSelectedFiles: true, // Show file name and size
+            showSelectedFilesPanel: true, // Ensure the panel is visible
+            locale: {
+                strings: {
+                    // Customize the file item display
+                    fileItem: (file) => `${file.name} (${file.size} bytes)`
+                }
+            }
         })
         .use(Uppy.XHRUpload, {
             endpoint: '/upload',
@@ -119,9 +151,25 @@
             bundle: false
         });
 
+    uppy.on('file-added', async (file) => {
+        console.log(`Added file: ${file.name} (${file.size} bytes)`);
+
+        // Check for duplicate files
+        const response = await fetch('/uploads');
+        const existingFiles = await response.json();
+
+        if (existingFiles.includes(file.name)) {
+            alert(`❌ File "${file.name}" already exists.`);
+            uppy.removeFile(file.id);
+        }
+    });
+
     uppy.on('complete', () => {
         alert('✅ Upload complete!');
         loadGallery();
+        // Switch to the View tab
+        const viewTab = new bootstrap.Tab(document.querySelector('#view-tab'));
+        viewTab.show();
     });
 
     function loadGallery() {

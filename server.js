@@ -33,18 +33,30 @@ const upload = multer({ storage });
 // Upload route
 app.post('/upload', upload.single('file'), async (req, res) => {
     try {
-        const { filename, path: filePath } = req.file;
-        const ext = path.extname(filename).toLowerCase();
+        const { originalname } = req.file;
+        const existingFiles = await fs.readdir(UPLOAD_DIR);
+
+        // Check for duplicate file
+        if (existingFiles.includes(originalname)) {
+            return res.status(400).json({ success: false, message: 'File already exists.' });
+        }
+
+        const filePath = path.join(UPLOAD_DIR, originalname);
+
+        // Move file to the correct location
+        await fs.move(req.file.path, filePath);
+
+        const ext = path.extname(originalname).toLowerCase();
 
         // Only generate thumbnails for images
         if (['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) {
-            const thumbPath = path.join(THUMB_DIR, filename);
-            await sharp(req.file.path)
+            const thumbPath = path.join(THUMB_DIR, originalname);
+            await sharp(filePath)
                 .resize({ width: 300 })
                 .toFile(thumbPath);
         }
 
-        res.json({ success: true, filename });
+        res.json({ success: true, filename: originalname });
     } catch (err) {
         console.error('❌ Upload error:', err);
         res.status(500).json({ success: false, error: err.toString() });
