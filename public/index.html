@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>LAN File Album</title>
+    <title>My Cloud</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <!-- Bootstrap -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -10,6 +10,7 @@
     <link href="https://releases.transloadit.com/uppy/v3.3.1/uppy.min.css" rel="stylesheet">
     <script src="https://releases.transloadit.com/uppy/v3.3.1/uppy.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css">
 
     <style>
         body {
@@ -65,19 +66,73 @@
         .uppy-Dashboard-Item-preview {
             display: none;
         }
+        .toast-container {
+            z-index: 9999;
+        }
+        .toast-header {
+            background-color: #ffc107 !important;
+            color: #000 !important;
+        }
+        /* iOS-style tabs */
+        .ios-tabs {
+            background-color: #f8f9fa;
+            border: none;
+            border-radius: 10px;
+            padding: 5px;
+            margin: 15px auto;
+            width: fit-content;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .ios-tabs .nav-item {
+            margin: 0 5px;
+        }
+        .ios-tabs .nav-link {
+            border: none;
+            border-radius: 8px;
+            color: #666;
+            padding: 10px 20px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+        .ios-tabs .nav-link:hover {
+            background-color: rgba(0,0,0,0.05);
+        }
+        .ios-tabs .nav-link.active {
+            background-color: white;
+            color: #007AFF;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        /* Add Bootstrap Icons */
+        @import url("https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css");
+        /* Add some spacing for icons */
+        .ios-tabs .nav-link i {
+            margin-right: 8px;
+        }
+        /* Tab content styling */
+        .tab-content {
+            padding: 20px;
+            background-color: white;
+            border-radius: 12px;
+            margin-top: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
     </style>
 </head>
 <body class="p-3">
 
-<h2 class="mb-4 text-center">📂 LAN File Album</h2>
+<h2 class="mb-4 text-center">📂 My Cloud</h2>
 
 <!-- Tabs -->
-<ul class="nav nav-tabs" id="myTab" role="tablist">
+<ul class="nav nav-tabs ios-tabs" id="myTab" role="tablist">
   <li class="nav-item" role="presentation">
-    <button class="nav-link active" id="view-tab" data-bs-toggle="tab" data-bs-target="#view" type="button" role="tab" aria-controls="view" aria-selected="true">View Files</button>
+    <button class="nav-link active" id="view-tab" data-bs-toggle="tab" data-bs-target="#view" type="button" role="tab" aria-controls="view" aria-selected="true">
+      <i class="bi bi-images"></i> View Files
+    </button>
   </li>
   <li class="nav-item" role="presentation">
-    <button class="nav-link" id="upload-tab" data-bs-toggle="tab" data-bs-target="#upload" type="button" role="tab" aria-controls="upload" aria-selected="false">Upload Files</button>
+    <button class="nav-link" id="upload-tab" data-bs-toggle="tab" data-bs-target="#upload" type="button" role="tab" aria-controls="upload" aria-selected="false">
+      <i class="bi bi-upload"></i> Upload Files
+    </button>
   </li>
 </ul>
 
@@ -85,7 +140,7 @@
 <div class="tab-content" id="myTabContent">
   <div class="tab-pane fade show active" id="view" role="tabpanel" aria-labelledby="view-tab">
     <!-- Gallery -->
-    <h4>📸 Uploaded Files</h4>
+    <h4>📸 My Files</h4>
     <div id="gallery" class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-6 g-3 mt-2"></div>
   </div>
   <div class="tab-pane fade" id="upload" role="tabpanel" aria-labelledby="upload-tab">
@@ -121,6 +176,18 @@
   </div>
 </div>
 
+<!-- Toast Container -->
+<div class="toast-container position-fixed top-0 end-0 p-3">
+  <div id="uploadToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+    <div class="toast-header bg-warning text-white">
+      <strong class="me-auto">Upload Notice</strong>
+      <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+    </div>
+    <div class="toast-body" id="toastMessage">
+    </div>
+  </div>
+</div>
+
 <script>
     // Uppy setup
     const uppy = new Uppy.Uppy({ restrictions: { maxNumberOfFiles: 1000 } })
@@ -135,15 +202,9 @@
             hideProgressAfterFinish: true,
             showLinkToFileUploadResult: false,
             showRemoveButtonAfterComplete: true,
-            thumbnailWidth: false, // Disable thumbnail generation
-            showSelectedFiles: true, // Show file name and size
-            showSelectedFilesPanel: true, // Ensure the panel is visible
-            locale: {
-                strings: {
-                    // Customize the file item display
-                    fileItem: (file) => `${file.name} (${file.size} bytes)`
-                }
-            }
+            thumbnailWidth: false,
+            showSelectedFiles: true,
+            showSelectedFilesPanel: true
         })
         .use(Uppy.XHRUpload, {
             endpoint: '/upload',
@@ -159,17 +220,46 @@
         const existingFiles = await response.json();
 
         if (existingFiles.includes(file.name)) {
-            alert(`❌ File "${file.name}" already exists.`);
+            // Show toast message
+            const toastEl = document.getElementById('uploadToast');
+            const toast = new bootstrap.Toast(toastEl);
+            document.getElementById('toastMessage').textContent = `❌ File "${file.name}" already exists.`;
+            toast.show();
+            
+            // Remove the duplicate file
             uppy.removeFile(file.id);
         }
     });
 
-    uppy.on('complete', () => {
-        alert('✅ Upload complete!');
-        loadGallery();
-        // Switch to the View tab
-        const viewTab = new bootstrap.Tab(document.querySelector('#view-tab'));
-        viewTab.show();
+    uppy.on('upload-success', (file, response) => {
+        console.log(`File ${file.name} uploaded successfully`);
+    });
+
+    uppy.on('upload-error', (file, error, response) => {
+        console.error(`Error uploading ${file.name}:`, error);
+        alert(`❌ Upload failed for "${file.name}": ${error}`);
+    });
+
+    uppy.on('complete', (result) => {
+        if (result.successful.length > 0) {
+            // Show toast message for successful upload
+            const toastEl = document.getElementById('uploadToast');
+            const toast = new bootstrap.Toast(toastEl);
+            document.getElementById('toastMessage').textContent = '✅ Upload complete!';
+            toast.show();
+
+            loadGallery();
+            
+            // Clear all files from Uppy Dashboard
+            uppy.cancelAll();
+            // Remove all files from Uppy's internal state
+            const files = uppy.getFiles();
+            files.forEach(file => uppy.removeFile(file.id));
+            
+            // Switch to the View tab
+            const viewTab = new bootstrap.Tab(document.querySelector('#view-tab'));
+            viewTab.show();
+        }
     });
 
     function loadGallery() {
@@ -200,7 +290,7 @@
                     let media = isImage
                         ? `<img src="${thumb}" class="card-img-top" loading="lazy" onclick="showImageModal('${url}')">`
                         : isVideo
-                            ? `<video controls class="d-block w-100" onclick="showImageModal('${url}')">
+                            ? `<video class="d-block w-100" preload="metadata" onclick="showImageModal('${url}')">
                                 <source src="${url}" type="video/${ext}">
                                 Your browser does not support the video tag.
                             </video>`
@@ -241,39 +331,66 @@
     }
 
     function showImageModal(selectedUrl) {
-        const carouselImages = document.getElementById('carouselImages');
-        carouselImages.innerHTML = ''; // Clear existing images
+        const ext = selectedUrl.split('.').pop().toLowerCase();
+        const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
 
-        fetch('/uploads')
-            .then(res => res.json())
-            .then(files => {
-                files.reverse().forEach((file) => {
-                    const ext = file.split('.').pop().toLowerCase();
-                    const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
-                    const url = `/uploads/${file}`;
+        if (isVideo) {
+            // Create a video element and request full screen
+            const videoElement = document.createElement('video');
+            videoElement.src = selectedUrl;
+            videoElement.controls = true;
+            videoElement.style.width = '100%';
+            videoElement.style.height = '100%';
+            document.body.appendChild(videoElement);
 
-                    const activeClass = url === selectedUrl ? 'active' : '';
-
-                    if (isImage) {
-                        carouselImages.insertAdjacentHTML('beforeend', `
-                            <div class="carousel-item ${activeClass}">
-                                <img src="${url}" class="d-block w-100" alt="...">
-                            </div>
-                        `);
-                    }
-                });
-
-                // Add keydown event listener for navigation
-                document.addEventListener('keydown', handleKeydown);
+            videoElement.requestFullscreen().then(() => {
+                videoElement.play();
+            }).catch(err => {
+                console.error('Error attempting to enable full-screen mode:', err);
             });
 
-        const imageModal = new bootstrap.Modal(document.getElementById('imageModal'));
-        imageModal.show();
+            // Remove the video element when exiting full screen
+            videoElement.onfullscreenchange = () => {
+                if (!document.fullscreenElement) {
+                    videoElement.remove();
+                }
+            };
+        } else {
+            // Handle images in the modal with carousel
+            const carouselImages = document.getElementById('carouselImages');
+            carouselImages.innerHTML = ''; // Clear existing images
 
-        // Remove event listener when modal is closed
-        document.getElementById('imageModal').addEventListener('hidden.bs.modal', () => {
-            document.removeEventListener('keydown', handleKeydown);
-        });
+            fetch('/uploads')
+                .then(res => res.json())
+                .then(files => {
+                    files.reverse().forEach((file) => {
+                        const fileExt = file.split('.').pop().toLowerCase();
+                        const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExt);
+                        const url = `/uploads/${file}`;
+
+                        const activeClass = url === selectedUrl ? 'active' : '';
+
+                        if (isImage) {
+                            carouselImages.insertAdjacentHTML('beforeend', `
+                                <div class="carousel-item ${activeClass}">
+                                    <img src="${url}" class="d-block w-100" alt="...">
+                                </div>
+                            `);
+                        }
+                    });
+
+                    // Add keydown event listener for navigation
+                    document.addEventListener('keydown', handleKeydown);
+                });
+
+            const imageModal = new bootstrap.Modal(document.getElementById('imageModal'));
+            imageModal.show();
+
+            // Remove event listener when modal is closed
+            document.getElementById('imageModal').addEventListener('hidden.bs.modal', () => {
+                document.removeEventListener('keydown', handleKeydown);
+            });
+        }
     }
 
     function handleKeydown(event) {
