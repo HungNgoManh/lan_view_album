@@ -16,6 +16,37 @@
         body {
             background-color: #f9f9f9;
         }
+        /* Add loading spinner styles */
+        #loadingSpinner {
+            z-index: 9999;
+            padding: 30px;
+            border-radius: 25px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+            min-width: 150px;
+        }
+        #loadingSpinner::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.3);
+            z-index: -1;
+            border-radius: 25px;
+        }
+        #loadingSpinner .spinner-border {
+            width: 4rem;
+            height: 4rem;
+        }
+        #loadingSpinner::after {
+            content: 'Loading...';
+            color: #0d6efd;
+            font-weight: 500;
+        }
         .card img, .card video {
             aspect-ratio: 1/1;
             object-fit: cover;
@@ -194,16 +225,23 @@
 <div class="tab-content" id="myTabContent">
   <div class="tab-pane fade show active" id="view" role="tabpanel" aria-labelledby="view-tab">
     <!-- Gallery -->
-    <div class="filter-container mb-4">
-        <div class="btn-group ios-filter" role="group" aria-label="File type filter">
-            <button type="button" class="btn btn-filter active" data-filter="all">All Files</button>
-            <button type="button" class="btn btn-filter" data-filter="image">Images</button>
-            <button type="button" class="btn btn-filter" data-filter="video">Videos</button>
-            <button type="button" class="btn btn-filter" data-filter="other">Others</button>
+    <div class="d-flex justify-content-center mb-3">
+        <div class="btn-group" role="group">
+            <button type="button" class="btn btn-outline-primary btn-filter active" data-filter="all">All Files</button>
+            <button type="button" class="btn btn-outline-primary btn-filter" data-filter="image">Images</button>
+            <button type="button" class="btn btn-outline-primary btn-filter" data-filter="video">Videos</button>
+            <button type="button" class="btn btn-outline-primary btn-filter" data-filter="other">Other</button>
         </div>
     </div>
     <h4>📸 My Files</h4>
-    <div id="gallery" class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-6 g-3 mt-2"></div>
+    <!-- Loading spinner - moved outside gallery -->
+    <div id="loadingSpinner" class="position-fixed top-50 start-50 translate-middle d-none">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+    <div id="gallery" class="row g-3">
+    </div>
   </div>
   <div class="tab-pane fade" id="upload" role="tabpanel" aria-labelledby="upload-tab">
     <!-- Uppy Upload Area -->

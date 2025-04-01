@@ -86,13 +86,66 @@ function getVideoDuration(videoUrl) {
     });
 }
 
-// Update the loadGallery function to include video duration
-function loadGallery(filter = 'all') {
+function createImageThumbnail(url) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous'; // Handle CORS if necessary
+        img.onload = function() {
+            const canvas = document.createElement('canvas');
+            // Reduce thumbnail size to save storage space
+            const maxSize = 300;
+            const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+            canvas.width = img.width * scale;
+            canvas.height = img.height * scale;
+            const context = canvas.getContext('2d');
+            context.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const dataURL = canvas.toDataURL('image/jpeg', 0.7); // Use JPEG with compression
+            resolve(dataURL);
+        };
+        img.src = url;
+    });
+}
+
+// Add this function to handle URL parameters
+function getUrlParameter(name) {
+    name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
+    const regex = new RegExp('[\\?&]' + name + '=([^&#]*)');
+    const results = regex.exec(location.search);
+    return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
+}
+
+// Update the loadGallery function to handle URL parameters
+function loadGallery(filter = null) {
+    // Show loading spinner if it exists
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    if (loadingSpinner) {
+        loadingSpinner.classList.remove('d-none');
+    }
+
+    // If no filter is provided, try to get it from URL
+    if (!filter) {
+        filter = getUrlParameter('filter') || 'all';
+    }
+
+    // Update URL without reloading the page
+    const newUrl = new URL(window.location);
+    if (filter === 'all') {
+        newUrl.searchParams.delete('filter');
+    } else {
+        newUrl.searchParams.set('filter', filter);
+    }
+    window.history.pushState({}, '', newUrl);
+
     fetch('/uploads')
         .then(res => res.json())
         .then(async files => {
             const gallery = document.getElementById('gallery');
+            if (!gallery) return; // Exit if gallery not found
+            
             gallery.innerHTML = '';
+            
+            // Create a document fragment for better performance
+            const fragment = document.createDocumentFragment();
             
             const filesWithDates = await Promise.all(files.map(async file => {
                 const url = `/uploads/${file}`;
@@ -116,29 +169,134 @@ function loadGallery(filter = 'all') {
 
                 let media;
                 if (isImage) {
-                    media = `<img src="${url}" class="card-img-top" loading="lazy" onclick="showImageModal('${url}')">`;
-                    gallery.insertAdjacentHTML('afterbegin', `
-                        <div class="col">
-                            <div class="card h-100">
-                                ${media}
-                            </div>
-                        </div>`);
-                } else if (isVideo) {
-                    captureVideoFrame(url, function(thumbnail, duration) {
-                        media = `
-                            <div class="position-relative">
-                                <img src="${thumbnail}" class="card-img-top" onclick="showImageModal('${url}')">
-                                <span class="position-absolute bottom-0 end-0 badge bg-dark m-2">
-                                    ${duration}
-                                </span>
-                            </div>`;
-                        gallery.insertAdjacentHTML('afterbegin', `
-                            <div class="col">
+                    try {
+                        // Check if thumbnail exists in cache
+                        const cachedThumbnail = localStorage.getItem(`img_thumb_${file}`);
+                        
+                        if (cachedThumbnail) {
+                            // Use cached thumbnail
+                            media = `<img src="${cachedThumbnail}" class="card-img-top" loading="lazy" onclick="showImageModal('${url}')">`;
+                            const col = document.createElement('div');
+                            col.className = 'col-3 mb-3';
+                            col.innerHTML = `
                                 <div class="card h-100">
                                     ${media}
+                                </div>`;
+                            fragment.appendChild(col);
+                        } else {
+                            // Generate new thumbnail and cache it
+                            const thumbnail = await createImageThumbnail(url);
+                            try {
+                                localStorage.setItem(`img_thumb_${file}`, thumbnail);
+                            } catch (e) {
+                                // If storage is full, clear old thumbnails and try again
+                                if (e.name === 'QuotaExceededError') {
+                                    clearOldThumbnails();
+                                    try {
+                                        localStorage.setItem(`img_thumb_${file}`, thumbnail);
+                                    } catch (e2) {
+                                        console.warn('Failed to cache image thumbnail:', e2);
+                                    }
+                                }
+                            }
+                            
+                            media = `<img src="${thumbnail}" class="card-img-top" loading="lazy" onclick="showImageModal('${url}')">`;
+                            const col = document.createElement('div');
+                            col.className = 'col-3 mb-3';
+                            col.innerHTML = `
+                                <div class="card h-100">
+                                    ${media}
+                                </div>`;
+                            fragment.appendChild(col);
+                        }
+                    } catch (e) {
+                        console.warn('Error handling image thumbnail:', e);
+                        // Fallback to original image
+                        media = `<img src="${url}" class="card-img-top" loading="lazy" onclick="showImageModal('${url}')">`;
+                        const col = document.createElement('div');
+                        col.className = 'col-3 mb-3';
+                        col.innerHTML = `
+                            <div class="card h-100">
+                                ${media}
+                            </div>`;
+                        fragment.appendChild(col);
+                    }
+                } else if (isVideo) {
+                    try {
+                        // Check if thumbnail exists in cache
+                        const cachedThumbnail = localStorage.getItem(`thumb_${file}`);
+                        const cachedDuration = localStorage.getItem(`duration_${file}`);
+                        
+                        if (cachedThumbnail && cachedDuration) {
+                            // Use cached thumbnail and duration
+                            media = `
+                                <div class="position-relative">
+                                    <img src="${cachedThumbnail}" class="card-img-top" onclick="showImageModal('${url}')">
+                                    <span class="position-absolute bottom-0 end-0 badge bg-dark m-2">
+                                        ${cachedDuration}
+                                    </span>
+                                </div>`;
+                            const col = document.createElement('div');
+                            col.className = 'col-3 mb-3';
+                            col.innerHTML = `
+                                <div class="card h-100">
+                                    ${media}
+                                </div>`;
+                            fragment.appendChild(col);
+                        } else {
+                            // Generate new thumbnail and cache it
+                            captureVideoFrame(url, function(thumbnail, duration) {
+                                try {
+                                    // Try to cache the thumbnail and duration
+                                    localStorage.setItem(`thumb_${file}`, thumbnail);
+                                    localStorage.setItem(`duration_${file}`, duration);
+                                } catch (e) {
+                                    // If storage is full, clear old thumbnails and try again
+                                    if (e.name === 'QuotaExceededError') {
+                                        clearOldThumbnails();
+                                        try {
+                                            localStorage.setItem(`thumb_${file}`, thumbnail);
+                                            localStorage.setItem(`duration_${file}`, duration);
+                                        } catch (e2) {
+                                            console.warn('Failed to cache thumbnail:', e2);
+                                        }
+                                    }
+                                }
+                                
+                                media = `
+                                    <div class="position-relative">
+                                        <img src="${thumbnail}" class="card-img-top" onclick="showImageModal('${url}')">
+                                        <span class="position-absolute bottom-0 end-0 badge bg-dark m-2">
+                                            ${duration}
+                                        </span>
+                                    </div>`;
+                                const col = document.createElement('div');
+                                col.className = 'col-3 mb-3';
+                                col.innerHTML = `
+                                    <div class="card h-100">
+                                        ${media}
+                                    </div>`;
+                                fragment.appendChild(col);
+                                gallery.appendChild(fragment);
+                            });
+                        }
+                    } catch (e) {
+                        console.warn('Error handling video thumbnail:', e);
+                        // Fallback to basic video display without thumbnail
+                        media = `
+                            <div class="position-relative">
+                                <div class="card-img-top bg-dark text-white d-flex align-items-center justify-content-center" style="height: 200px;">
+                                    <i class="bi bi-play-circle-fill" style="font-size: 2rem;"></i>
                                 </div>
-                            </div>`);
-                    });
+                            </div>`;
+                        const col = document.createElement('div');
+                        col.className = 'col-3 mb-3';
+                        col.innerHTML = `
+                            <div class="card h-100">
+                                ${media}
+                            </div>`;
+                        fragment.appendChild(col);
+                    }
                 } else {
                     media = `<div class="card-body text-center">
                         <div class="small text-muted mb-2">${file}</div>
@@ -146,14 +304,37 @@ function loadGallery(filter = 'all') {
                             <i class="bi bi-download"></i> Download
                         </a>
                     </div>`;
-                    gallery.insertAdjacentHTML('afterbegin', `
-                        <div class="col">
-                            <div class="card h-100">
-                                ${media}
-                            </div>
-                        </div>`);
+                    const col = document.createElement('div');
+                    col.className = 'col-3 mb-3';
+                    col.innerHTML = `
+                        <div class="card h-100">
+                            ${media}
+                        </div>`;
+                    fragment.appendChild(col);
                 }
             }
+            
+            // Append the fragment to the gallery
+            gallery.appendChild(fragment);
+
+            // Update filter buttons to match current filter
+            const filterButtons = document.querySelectorAll('.btn-filter');
+            filterButtons.forEach(button => {
+                if (button.dataset.filter === filter) {
+                    button.classList.add('active');
+                } else {
+                    button.classList.remove('active');
+                }
+            });
+        })
+        .finally(() => {
+            // Hide loading spinner if it exists
+            if (loadingSpinner) {
+                loadingSpinner.classList.add('d-none');
+            }
+            // Re-enable filter buttons
+            const filterButtons = document.querySelectorAll('.btn-filter');
+            filterButtons.forEach(btn => btn.disabled = false);
         });
 }
 
@@ -255,11 +436,14 @@ function handleKeydown(event) {
     }
 }
 
-// Add event listeners for filter buttons
+// Update the event listeners for filter buttons
 document.addEventListener('DOMContentLoaded', function() {
     const filterButtons = document.querySelectorAll('.btn-filter');
     filterButtons.forEach(button => {
         button.addEventListener('click', function() {
+            // Disable all filter buttons while loading
+            filterButtons.forEach(btn => btn.disabled = true);
+            
             // Remove active class from all buttons
             filterButtons.forEach(btn => btn.classList.remove('active'));
             // Add active class to clicked button
@@ -268,6 +452,10 @@ document.addEventListener('DOMContentLoaded', function() {
             loadGallery(this.dataset.filter);
         });
     });
+
+    // Load gallery with filter from URL on page load
+    const filter = getUrlParameter('filter') || 'all';
+    loadGallery(filter);
 
     const videoModalElement = document.getElementById('videoModal');
     const videoModal = new bootstrap.Modal(videoModalElement);
@@ -291,11 +479,14 @@ function captureVideoFrame(url, callback) {
 
     video.addEventListener('seeked', function() {
         const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+        // Reduce thumbnail size to save storage space
+        const maxSize = 300;
+        const scale = Math.min(1, maxSize / Math.max(video.videoWidth, video.videoHeight));
+        canvas.width = video.videoWidth * scale;
+        canvas.height = video.videoHeight * scale;
         const context = canvas.getContext('2d');
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const dataURL = canvas.toDataURL();
+        const dataURL = canvas.toDataURL('image/jpeg', 0.7); // Use JPEG with compression
         const duration = Math.round(video.duration);
         const minutes = Math.floor(duration / 60);
         const seconds = duration % 60;
@@ -305,11 +496,21 @@ function captureVideoFrame(url, callback) {
     video.load(); // Ensure the video is loaded
 }
 
-// Example usage
-captureVideoFrame('path/to/video.mp4', function(thumbnail) {
-    // Use the thumbnail as needed
-    console.log(thumbnail);
-});
+// Update clearOldThumbnails to handle both image and video thumbnails
+function clearOldThumbnails() {
+    const keys = Object.keys(localStorage);
+    const thumbnailKeys = keys.filter(key => key.startsWith('thumb_') || key.startsWith('img_thumb_'));
+    const durationKeys = keys.filter(key => key.startsWith('duration_'));
+    
+    // Remove oldest 50% of thumbnails
+    const removeCount = Math.floor(thumbnailKeys.length / 2);
+    for (let i = 0; i < removeCount; i++) {
+        localStorage.removeItem(thumbnailKeys[i]);
+        if (durationKeys[i]) {
+            localStorage.removeItem(durationKeys[i]);
+        }
+    }
+}
 
 function createFileCard(file) {
     const card = document.createElement('div');
@@ -351,5 +552,3 @@ function createFileCard(file) {
     card.appendChild(cardDiv);
     return card;
 }
-
-loadGallery();
