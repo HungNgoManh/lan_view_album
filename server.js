@@ -66,11 +66,13 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 // Get file list
 app.get('/uploads', async (req, res) => {
     try {
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 30;
         const filter = req.query.filter || 'all';
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 20;
         
         const files = await fs.readdir(UPLOAD_DIR);
+        
+        // Categorize files
         const fileObjects = await Promise.all(files.map(async filename => {
             const filePath = path.join(UPLOAD_DIR, filename);
             const stats = await fs.stat(filePath);
@@ -92,7 +94,7 @@ app.get('/uploads', async (req, res) => {
             };
         }));
         
-        // Apply filter
+        // Filter files
         let filteredFiles = fileObjects;
         if (filter === 'image') {
             filteredFiles = fileObjects.filter(file => file.type === 'image');
@@ -102,11 +104,6 @@ app.get('/uploads', async (req, res) => {
             filteredFiles = fileObjects.filter(file => file.type === 'other');
         }
         
-        // Pagination
-        const startIndex = (page - 1) * limit;
-        const endIndex = page * limit;
-        const paginatedFiles = filteredFiles.slice(startIndex, endIndex);
-        
         // Count by type
         const counts = {
             images: fileObjects.filter(file => file.type === 'image').length,
@@ -115,6 +112,12 @@ app.get('/uploads', async (req, res) => {
         };
         counts.all = counts.images + counts.videos + counts.others;
         
+        // Pagination
+        const startIndex = (page - 1) * limit;
+        const endIndex = page * limit;
+        const paginatedFiles = filteredFiles.slice(startIndex, endIndex);
+        
+        // Always return a consistent response shape, even if the filtered list is empty
         res.json({
             files: paginatedFiles,
             counts,
@@ -123,16 +126,70 @@ app.get('/uploads', async (req, res) => {
         });
     } catch (err) {
         console.error('Error listing files:', err);
-        res.status(500).json({ error: 'Failed to list files' });
+        res.status(500).json({ 
+            error: 'Failed to list files',
+            message: err.message,
+            files: [],
+            counts: { images: 0, videos: 0, others: 0, all: 0 },
+            hasMore: false,
+            page: 1
+        });
     }
 });
 
 // Delete a file
 app.delete('/delete/:filename', async (req, res) => {
-    const filename = req.params.filename;
-    await fs.remove(path.join(UPLOAD_DIR, filename));
-    await fs.remove(path.join(THUMB_DIR, filename));
-    res.json({ success: true });
+    try {
+        const filename = req.params.filename;
+        const filePath = path.join(UPLOAD_DIR, filename);
+        const thumbPath = path.join(THUMB_DIR, filename);
+        
+        // Remove the file
+        await fs.remove(filePath);
+        
+        // Remove thumbnail if it exists
+        try {
+            await fs.remove(thumbPath);
+        } catch (thumbErr) {
+            console.warn(`Could not remove thumbnail for ${filename}:`, thumbErr);
+            // Continue even if thumbnail deletion fails
+        }
+        
+        // Get updated file counts
+        const remainingFiles = await fs.readdir(UPLOAD_DIR);
+        
+        // Count files by type
+        const counts = {
+            images: 0,
+            videos: 0,
+            others: 0
+        };
+        
+        for (const file of remainingFiles) {
+            const ext = path.extname(file).toLowerCase();
+            if (['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext)) {
+                counts.images++;
+            } else if (['.mp4', '.webm', '.mov'].includes(ext)) {
+                counts.videos++;
+            } else {
+                counts.others++;
+            }
+        }
+        
+        counts.all = counts.images + counts.videos + counts.others;
+        
+        res.json({ 
+            success: true, 
+            message: `File ${filename} deleted successfully`,
+            counts
+        });
+    } catch (err) {
+        console.error('❌ Delete error:', err);
+        res.status(500).json({ 
+            success: false, 
+            error: err.toString() 
+        });
+    }
 });
 
 // Rename a file

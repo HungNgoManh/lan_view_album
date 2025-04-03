@@ -408,6 +408,340 @@
         .btn i {
             margin-right: 0.25rem;
         }
+        /* Add to your CSS */
+        .modal .carousel-item {
+            min-height: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal .carousel-item img {
+            max-height: 80vh;
+            object-fit: contain;
+        }
+        .modal .carousel-item video {
+            max-height: 80vh;
+        }
+        /* Loading indicator for images/videos in the modal */
+        .modal .carousel-item::before {
+            content: "";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .modal .carousel-item.loading::before {
+            opacity: 1;
+        }
+        @keyframes spin {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+        /* Improved modal appearance */
+        .modal-dialog {
+            max-width: 90vw;
+            margin: 1.75rem auto;
+        }
+        @media (min-width: 992px) {
+            .modal-dialog {
+                max-width: 80vw;
+            }
+        }
+        .modal-content {
+            background-color: rgba(255, 255, 255, 0.95);
+        }
+        .modal-body {
+            padding: 0;
+        }
+        /* Add to your CSS */
+        .modal-loading-indicator {
+            z-index: 10;
+            background-color: rgba(255, 255, 255, 0.7);
+            padding: 20px;
+            border-radius: 10px;
+        }
+        .carousel-item {
+            transition: opacity 0.3s ease;
+        }
+        .carousel-item.loaded img {
+            animation: fadeIn 0.3s ease forwards;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0.7; }
+            to { opacity: 1; }
+        }
+        .carousel-item.error {
+            background-color: #f8d7da;
+        }
+        .error-message {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 10px;
+            background-color: rgba(220, 53, 69, 0.7);
+            color: white;
+            text-align: center;
+        }
+        /* Modal improvements */
+        .carousel-loader {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 300px;
+        }
+        .modal-dialog {
+            display: flex;
+            align-items: center;
+            min-height: calc(100% - 3.5rem);
+        }
+        .carousel-item img {
+            max-height: 80vh;
+            width: auto;
+            margin: 0 auto;
+            object-fit: contain;
+        }
+        .carousel-item video {
+            max-height: 80vh;
+            width: auto;
+            margin: 0 auto;
+        }
+        .error-item {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+        }
+        /* Improve carousel controls */
+        .carousel-control-prev,
+        .carousel-control-next {
+            width: 10%;
+            opacity: 0.8;
+        }
+        .carousel-control-prev-icon,
+        .carousel-control-next-icon {
+            background-color: rgba(0, 0, 0, 0.5);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+        }
+        /* Modal improvements */
+        .carousel-item {
+            text-align: center;
+            min-height: 200px;
+        }
+        .carousel-item img {
+            max-height: 70vh;
+            width: auto !important;
+            max-width: 100%;
+            margin: 0 auto;
+        }
+        .carousel-item video {
+            max-height: 70vh;
+            width: auto !important;
+            max-width: 100%;
+            margin: 0 auto;
+        }
+        .modal-content {
+            background-color: rgba(255, 255, 255, 0.98);
+        }
+        .modal-body {
+            padding: 1rem;
+        }
+        .loader-spinner {
+            z-index: 5;
+        }
+        /* Add to your CSS */
+        .modal-body {
+            min-height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .carousel-item {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 200px;
+        }
+        .retry-button {
+            margin-top: 10px;
+        }
+        .loader-spinner {
+            padding: 20px;
+            border-radius: 10px;
+            background-color: rgba(255, 255, 255, 0.8);
+        }
+        /* Add to your CSS */
+        .empty-state {
+            padding: 40px 20px;
+            background-color: #f8f9fa;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .empty-state i {
+            font-size: 4rem;
+            color: #dee2e6;
+            margin-bottom: 1rem;
+        }
+        .empty-state h5 {
+            color: #6c757d;
+            margin-bottom: 0.5rem;
+        }
+        .empty-state p {
+            color: #adb5bd;
+            margin-bottom: 1.5rem;
+        }
+        /* Add to your CSS */
+        .thumbnail-container {
+            position: relative;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            overflow: hidden;
+            aspect-ratio: 1/1;
+        }
+        .thumbnail-loading {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(248, 249, 250, 0.8);
+            z-index: 5;
+        }
+        .thumbnail-img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .thumbnail-img.loaded {
+            opacity: 1;
+        }
+        .video-icon {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2rem;
+            color: white;
+            text-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+            z-index: 2;
+            pointer-events: none;
+        }
+        .video-duration {
+            position: absolute;
+            bottom: 8px;
+            right: 8px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            z-index: 2;
+        }
+        /* Enhanced filter tabs */
+        .filter-container {
+            display: flex;
+            justify-content: center;
+            padding: 0.75rem;
+            background-color: #f8f9fa;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            margin-top: 1.5rem;
+        }
+        .filter-tabs {
+            background-color: #e9ecef;
+            border-radius: 8px;
+            padding: 4px;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        .btn-filter {
+            border: none !important;
+            font-weight: 500;
+            padding: 0.5rem 1.25rem;
+            font-size: 0.9rem;
+            position: relative;
+            color: #495057;
+            background: transparent;
+            transition: all 0.25s ease;
+            margin: 0 2px;
+        }
+        .btn-filter:hover {
+            color: #212529;
+            background-color: rgba(255, 255, 255, 0.5);
+        }
+        .btn-filter.active {
+            background-color: white;
+            color: #007bff;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            border-radius: 6px;
+            z-index: 1;
+        }
+        .btn-filter.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 20px;
+            height: 3px;
+            background-color: #007bff;
+            border-radius: 3px;
+        }
+        /* Add a highlight animation when clicked */
+        .btn-filter:active {
+            transform: scale(0.97);
+        }
+        @keyframes buttonPulse {
+            0% { box-shadow: 0 0 0 0 rgba(0, 123, 255, 0.4); }
+            70% { box-shadow: 0 0 0 6px rgba(0, 123, 255, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(0, 123, 255, 0); }
+        }
+        .btn-filter.clicked {
+            animation: buttonPulse 0.5s ease-out;
+        }
+        /* Additional layout improvements */
+        .tab-content {
+            position: relative;
+        }
+        /* Add a subtle gradient background to the tab content area */
+        .tab-pane {
+            background: linear-gradient(180deg, #f8f9fa 0%, rgba(248, 249, 250, 0) 50px);
+            border-radius: 12px;
+            padding-top: 20px;
+        }
+        /* Add subtle divider between main tabs and filter tabs */
+        .ios-tabs {
+            margin-bottom: 1.5rem;
+            position: relative;
+        }
+        .ios-tabs::after {
+            content: '';
+            position: absolute;
+            bottom: -12px;
+            left: 10%;
+            right: 10%;
+            height: 1px;
+            background: linear-gradient(90deg, 
+                rgba(0,0,0,0) 0%, 
+                rgba(0,0,0,0.05) 20%, 
+                rgba(0,0,0,0.05) 80%, 
+                rgba(0,0,0,0) 100%);
+        }
     </style>
 </head>
 <body class="p-3">
@@ -432,15 +766,14 @@
 <div class="tab-content" id="myTabContent">
   <div class="tab-pane fade show active" id="view" role="tabpanel" aria-labelledby="view-tab">
     <!-- Gallery -->
-    <div class="d-flex justify-content-center mb-3">
-        <div class="btn-group" role="group">
-            <button type="button" class="btn btn-outline-primary btn-filter active" data-filter="all">All Files</button>
-            <button type="button" class="btn btn-outline-primary btn-filter" data-filter="image">Images</button>
-            <button type="button" class="btn btn-outline-primary btn-filter" data-filter="video">Videos</button>
-            <button type="button" class="btn btn-outline-primary btn-filter" data-filter="other">Other</button>
+    <div class="filter-container mb-4 mt-3">
+        <div class="btn-group filter-tabs" role="group">
+            <button type="button" class="btn btn-filter active" data-filter="all">All Files</button>
+            <button type="button" class="btn btn-filter" data-filter="image">Images</button>
+            <button type="button" class="btn btn-filter" data-filter="video">Videos</button>
+            <button type="button" class="btn btn-filter" data-filter="other">Other</button>
         </div>
     </div>
-    <h4>📸 My Files</h4>
     <!-- Loading spinner - moved outside gallery -->
     <div id="loadingSpinner" class="position-fixed top-50 start-50 translate-middle d-none">
         <div class="spinner-border text-primary" role="status">
