@@ -65,8 +65,66 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 
 // Get file list
 app.get('/uploads', async (req, res) => {
-    const files = await fs.readdir(UPLOAD_DIR);
-    res.json(files);
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 30;
+        const filter = req.query.filter || 'all';
+        
+        const files = await fs.readdir(UPLOAD_DIR);
+        const fileObjects = await Promise.all(files.map(async filename => {
+            const filePath = path.join(UPLOAD_DIR, filename);
+            const stats = await fs.stat(filePath);
+            const ext = path.extname(filename).toLowerCase();
+            
+            // Determine file type
+            let type = 'other';
+            if (['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext)) {
+                type = 'image';
+            } else if (['.mp4', '.webm', '.mov'].includes(ext)) {
+                type = 'video';
+            }
+            
+            return {
+                filename,
+                size: stats.size,
+                modified: stats.mtime,
+                type
+            };
+        }));
+        
+        // Apply filter
+        let filteredFiles = fileObjects;
+        if (filter === 'image') {
+            filteredFiles = fileObjects.filter(file => file.type === 'image');
+        } else if (filter === 'video') {
+            filteredFiles = fileObjects.filter(file => file.type === 'video');
+        } else if (filter === 'other') {
+            filteredFiles = fileObjects.filter(file => file.type === 'other');
+        }
+        
+        // Pagination
+        const startIndex = (page - 1) * limit;
+        const endIndex = page * limit;
+        const paginatedFiles = filteredFiles.slice(startIndex, endIndex);
+        
+        // Count by type
+        const counts = {
+            images: fileObjects.filter(file => file.type === 'image').length,
+            videos: fileObjects.filter(file => file.type === 'video').length,
+            others: fileObjects.filter(file => file.type === 'other').length
+        };
+        counts.all = counts.images + counts.videos + counts.others;
+        
+        res.json({
+            files: paginatedFiles,
+            counts,
+            hasMore: endIndex < filteredFiles.length,
+            page
+        });
+    } catch (err) {
+        console.error('Error listing files:', err);
+        res.status(500).json({ error: 'Failed to list files' });
+    }
 });
 
 // Delete a file
