@@ -221,8 +221,8 @@ function loadGallery(filter = 'all', page = 1) {
     newUrl.searchParams.set('filter', filter);
     window.history.pushState({}, '', newUrl);
 
-    // Fetch files with filter and pagination
-    fetch(`/uploads?filter=${filter}&page=${page}&limit=20`)
+    // Fetch files with filter, pagination, and explicit sort order
+    fetch(`/uploads?filter=${filter}&page=${page}&limit=20&sort=date&order=desc`)
         .then(res => {
             if (!res.ok) {
                 // Special handling for 500 errors when likely due to empty category
@@ -1373,23 +1373,33 @@ setInterval(cleanupPlaceholders, 5000);
  * Respects loading pauses for better performance during modal viewing
  */
 async function processFilesSequentially(files, gallery, page) {
-    // Get last modified dates (only needed for old format)
-    let filesWithDates = files;
+    // Get last modified dates and ensure they're sorted
+    let filesWithDates = [...files]; // Create a copy to avoid modifying original array
     
-    if (Array.isArray(files) && files.length > 0 && !files[0].date) {
+    // Check if we need to fetch dates (old format) or if they're already there (new format)
+    if (Array.isArray(filesWithDates) && filesWithDates.length > 0) {
         try {
-            // Old format processing - get dates and sort
-            filesWithDates = await Promise.all(files.map(async fileObj => {
-                const url = `/uploads/${fileObj.filename}`;
-                const response = await fetch(url, { method: 'HEAD' });
-                const lastModified = new Date(response.headers.get('last-modified'));
-                return { ...fileObj, date: lastModified };
-            }));
+            // If dates are missing, fetch them
+            if (!filesWithDates[0].date) {
+                console.log('Fetching file dates for sorting...');
+                filesWithDates = await Promise.all(filesWithDates.map(async fileObj => {
+                    const url = `/uploads/${fileObj.filename}`;
+                    const response = await fetch(url, { method: 'HEAD' });
+                    const lastModified = new Date(response.headers.get('last-modified'));
+                    return { ...fileObj, date: lastModified };
+                }));
+            }
             
-            // Sort files by date in descending order
-            filesWithDates.sort((a, b) => b.date - a.date);
+            // Always sort by date in descending order, regardless of format
+            console.log('Sorting files by date (newest first)...');
+            filesWithDates.sort((a, b) => {
+                // Handle various date formats
+                const dateA = a.date instanceof Date ? a.date : new Date(a.date || a.modified || 0);
+                const dateB = b.date instanceof Date ? b.date : new Date(b.date || b.modified || 0);
+                return dateB - dateA; // Descending order (newest first)
+            });
         } catch (error) {
-            console.warn('Error getting file dates:', error);
+            console.warn('Error processing file dates:', error);
             // Continue with unsorted files
         }
     }
