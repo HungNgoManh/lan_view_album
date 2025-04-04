@@ -601,11 +601,14 @@
         /* Add to your CSS */
         .thumbnail-container {
             position: relative;
-            background-color: #f0f0f0;
-            border-radius: 4px;
+            width: 100%;
+            padding-bottom: 100%; /* Square aspect ratio */
+            height: 0;
             overflow: hidden;
-            aspect-ratio: 1/1;
+            border-radius: 8px;
+            background-color: #f8f9fa;
         }
+        
         .thumbnail-loading {
             position: absolute;
             top: 0;
@@ -618,6 +621,7 @@
             background-color: rgba(248, 249, 250, 0.8);
             z-index: 5;
         }
+        
         .thumbnail-img {
             position: absolute;
             top: 0;
@@ -626,10 +630,49 @@
             height: 100%;
             object-fit: cover;
             opacity: 0;
-            transition: opacity 0.3s ease;
+            transition: all 0.3s ease;
         }
+        
         .thumbnail-img.loaded {
             opacity: 1;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 576px) {
+            /* Small screens - 4 columns */
+            .col-3 {
+                flex: 0 0 auto;
+                width: 25%;
+            }
+        }
+        
+        @media (min-width: 768px) and (max-width: 991px) {
+            /* Medium screens - 4 columns */
+            .col-md-3 {
+                flex: 0 0 auto;
+                width: 25%;
+            }
+        }
+        
+        @media (min-width: 992px) and (max-width: 1199px) {
+            /* Large screens - 6 columns */
+            .col-lg-2 {
+                flex: 0 0 auto;
+                width: 16.66666%;
+            }
+        }
+        
+        @media (min-width: 1200px) {
+            /* Extra large screens - 8-10 columns */
+            .col-xl-1 {
+                flex: 0 0 auto;
+                width: 12.5%; /* 8 columns */
+            }
+        }
+        
+        /* Add padding to gallery container */
+        #gallery {
+            padding: 0 10px;
         }
         .video-icon {
             position: absolute;
@@ -802,14 +845,6 @@
           <div class="carousel-inner" id="carouselImages">
             <!-- Images will be inserted here -->
           </div>
-          <button class="carousel-control-prev" type="button" data-bs-target="#carouselExample" data-bs-slide="prev">
-            <span class="carousel-control-prev-icon" aria-hidden="true"></span>
-            <span class="visually-hidden">Previous</span>
-          </button>
-          <button class="carousel-control-next" type="button" data-bs-target="#carouselExample" data-bs-slide="next">
-            <span class="carousel-control-next-icon" aria-hidden="true"></span>
-            <span class="visually-hidden">Next</span>
-          </button>
         </div>
       </div>
       <!-- Footer with buttons will be added dynamically -->
@@ -856,5 +891,25 @@
 <button id="backToTopBtn" class="btn btn-primary position-fixed bottom-0 end-0 m-4 d-none">
     <i class="bi bi-arrow-up"></i>
 </button>
+
+<!-- Add a script to ensure video is stopped when modal is closed -->
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const videoModal = document.getElementById('videoModal');
+    if (videoModal) {
+      videoModal.addEventListener('hidden.bs.modal', function() {
+        // Find all videos in the modal and stop them
+        const videos = this.querySelectorAll('video');
+        videos.forEach(video => {
+          video.pause();
+          video.currentTime = 0;
+          // Remove the source to fully stop the video and free resources
+          video.removeAttribute('src');
+          video.load();
+        });
+      });
+    }
+  });
+</script>
 </body>
 </html>

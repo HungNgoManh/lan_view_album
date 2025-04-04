@@ -21,6 +21,25 @@ const uppy = new Uppy.Uppy({ restrictions: { maxNumberOfFiles: 1000 } })
         bundle: false
     });
 
+// Add these variables at the top of your script
+let isLoading = false;
+let currentPage = 1;
+let hasMore = true;
+let currentFilter = 'all';
+let scrollTimeout = null;
+let isLoadingGallery = false; // Add this variable for gallery loading state
+let loadingPage = 1; // Add this to track which page is being loaded
+let hasMoreItems = true; // Add this to track if there are more items
+let itemsPerPage = 20; // Number of items to load per page
+
+// Add this global variable to track scroll direction
+let lastScrollTop = 0;
+
+// Add these global variables at the top of your script
+let isModalOpen = false;
+let loadingPaused = false;
+let loadingQueue = [];
+
 uppy.on('file-added', async (file) => {
     console.log(`Added file: ${file.name} (${file.size} bytes)`);
 
@@ -114,21 +133,6 @@ function getUrlParameter(name) {
     return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
 }
 
-// Add these variables at the top of your script
-let isLoading = false;
-let currentPage = 1;
-let hasMore = true;
-let currentFilter = 'all';
-let scrollTimeout = null;
-
-// Add this global variable to track scroll direction
-let lastScrollTop = 0;
-
-// Add these global variables at the top of your script
-let isModalOpen = false;
-let loadingPaused = false;
-let loadingQueue = [];
-
 // Add a scroll direction detection function
 function handleScrollDirection() {
     const st = window.pageYOffset || document.documentElement.scrollTop;
@@ -146,7 +150,11 @@ function handleScrollDirection() {
  */
 function handleScroll() {
     // Skip processing if a modal is open or loading is already in progress
-    if (isModalOpen || isLoading || !hasMore) return;
+    if (isModalOpen || isLoadingGallery || !hasMoreItems) {
+        // Debug log for skipped scroll handling
+        console.log(`Scroll handler skipped: modal=${isModalOpen}, loading=${isLoadingGallery}, hasMore=${hasMoreItems}`);
+        return;
+    }
 
     // Clear existing timeout
     if (scrollTimeout) {
@@ -157,19 +165,22 @@ function handleScroll() {
     scrollTimeout = setTimeout(() => {
         const scrollPosition = window.innerHeight + window.scrollY;
         const bodyHeight = document.body.offsetHeight;
-        const threshold = 800; // Load more when user is 800px from bottom
+        const threshold = 500; // Reduced threshold to load more when user is 500px from bottom
+        
+        const distanceToBottom = bodyHeight - scrollPosition;
+        console.log(`Scroll position: ${scrollPosition}, Body height: ${bodyHeight}, Distance to bottom: ${distanceToBottom}px`);
 
-        if (scrollPosition >= bodyHeight - threshold) {
+        if (distanceToBottom <= threshold) {
             console.log(`Loading more files - Page ${currentPage + 1} for filter ${currentFilter}`);
             
             // If loading is paused, queue this operation
             if (loadingPaused) {
                 console.log('Loading paused, queueing load operation');
                 loadingQueue.push(() => loadGallery(currentFilter, currentPage + 1));
-            return;
-        }
+                return;
+            }
 
-            // Add placeholder thumbnails only (no text header)
+            // Add placeholder thumbnails (no text header)
             const gallery = document.getElementById('gallery');
             if (gallery) {
                 // Add exactly 5 placeholder thumbnails
@@ -178,7 +189,8 @@ function handleScroll() {
             }
             
             // Load the actual content
-            loadGallery(currentFilter, currentPage + 1);
+            currentPage++; // Increment the current page
+            loadGallery(currentFilter, currentPage);
         }
     }, 100); // Debounce for 100ms
 }
@@ -186,174 +198,155 @@ function handleScroll() {
 // Make sure this is outside any functions, at the global level
 window.addEventListener('scroll', handleScroll);
 
-// Update the loadGallery function to handle URL parameters
+// Update the loadGallery function to work with server thumbnails
 function loadGallery(filter = 'all', page = 1) {
-    if (isLoading && page > 1) return;
-    isLoading = true;
-
-    // Update current filter
+    console.log('Loading gallery with filter:', filter, 'page:', page);
+    
+    // If already loading, don't make another request
+    if (isLoadingGallery) {
+        console.log('Already loading gallery, ignoring request');
+        return;
+    }
+    
+    isLoadingGallery = true;
+    isLoading = true; // Set the global loading flag
+    loadingPage = page;
+    currentPage = page; // Keep currentPage in sync with loadingPage
     currentFilter = filter;
-
-    console.log(`Loading gallery with filter: ${filter}, page: ${page}`);
-
-    // Show loading spinner only on first load
-    const loadingSpinner = document.getElementById('loadingSpinner');
-    if (page === 1 && loadingSpinner) {
-        loadingSpinner.classList.remove('d-none');
+    
+    // Update debug display if it exists
+    if (typeof updateDebugDisplay === 'function') {
+        updateDebugDisplay();
     }
-
-    // For first page load, replace content with placeholders
-        const gallery = document.getElementById('gallery');
-    if (gallery && page === 1) {
-        gallery.innerHTML = '';
+    
+    // Show loading indicator for first page load
+    if (page === 1) {
+        showLoadingSpinner();
         
-        // Add placeholders for initial load
-        const placeholders = createPlaceholderThumbnails(5);
-        gallery.appendChild(placeholders);
+        // Clear any existing "end of content" message when starting a new search
+        removeEndOfContentMessage();
+    } else {
+        // For pagination, add a loading indicator at the bottom
+        createLoadingIndicator();
     }
-
-    // Disable filter buttons while loading
-    const filterButtons = document.querySelectorAll('.btn-filter');
-    filterButtons.forEach(btn => btn.disabled = true);
-
-    // Update URL without reloading the page
-    const newUrl = new URL(window.location);
-    newUrl.searchParams.set('filter', filter);
-    window.history.pushState({}, '', newUrl);
-
-    // Fetch files with filter, pagination, and explicit sort order
-    fetch(`/uploads?filter=${filter}&page=${page}&limit=20&sort=date&order=desc`)
+    
+    // Create placeholders for the incoming batch
+    if (page > 1) {
+        createPlaceholderThumbnails(5);
+    }
+    
+    // Update filter button states
+    updateFilterButtonState(filter);
+    
+    // Fetch files with filter and pagination - Always sort by date, newest first
+    fetch(`/uploads?filter=${filter}&page=${page}&limit=${itemsPerPage}&sort=date&order=desc`)
         .then(res => {
             if (!res.ok) {
-                // Special handling for 500 errors when likely due to empty category
-                if (res.status === 500 && ['image', 'video', 'other'].includes(filter)) {
-                    console.warn(`Server error for filter "${filter}", treating as empty category`);
-                    // Return a mock empty response
-                    return {
-                        files: [],
-                        counts: {
-                            all: 0,
-                            images: 0,
-                            videos: 0,
-                            others: 0
-                        },
-                        hasMore: false,
-                        page: page
-                    };
-                }
-                
-                throw new Error(`HTTP error! status: ${res.status}`);
+                throw new Error('Network response was not ok');
             }
             return res.json();
         })
         .then(data => {
-            // Standardize the response format
-            let standardizedData = {
-                files: [],
-                counts: {
-                    all: 0,
-                    images: 0,
-                    videos: 0,
-                    others: 0
-                },
-                hasMore: false,
-                page: page
-            };
-            
-            // Handle various response formats
-            if (Array.isArray(data)) {
-                // Old format: array of filenames
-                standardizedData.files = data.map(filename => ({ filename }));
-                standardizedData.hasMore = data.length >= 20;
-            } else if (data && typeof data === 'object') {
-                // New format with potential missing properties
-                standardizedData.files = Array.isArray(data.files) ? data.files : [];
-                standardizedData.counts = data.counts || standardizedData.counts;
-                standardizedData.hasMore = data.hasMore !== undefined ? data.hasMore : false;
-                standardizedData.page = data.page || page;
-            } else {
-                console.warn(`Unexpected response format for filter "${filter}":`, data);
+            // Hide loading spinner for first page
+            if (page === 1) {
+                hideLoadingSpinner();
             }
             
-            // Update app state with the standardized data
-            currentPage = standardizedData.page;
-            hasMore = standardizedData.hasMore;
+            const gallery = document.getElementById('gallery');
             
-            // Update tab labels with counts
-            updateTabLabels(standardizedData.counts);
+            // Clear gallery for first page load
+            if (page === 1) {
+                gallery.innerHTML = '';
+                
+                // If no files returned for first page, show empty state
+                if (data.files.length === 0) {
+                    gallery.innerHTML = `
+                        <div class="col-12 text-center py-5 w-100">
+                            <div class="empty-state">
+                                <i class="bi bi-inbox"></i>
+                                <h5>No files found</h5>
+                                <p>Upload some files to see them here</p>
+                                <button class="btn btn-primary" onclick="document.getElementById('upload-tab').click()">
+                                    <i class="bi bi-upload"></i> Upload Files
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
             
-            // Process the gallery with standardized data
-            return processGalleryData(standardizedData, gallery, page, filter);
+            // Process the returned files
+            processGalleryData(data, gallery, page, filter);
+            
+            // Update tab counts
+            updateTabLabels(data.counts);
+            
+            // Save application state
+            saveAppState();
+            
+            // Store hasMore for later use (infinite scrolling)
+            hasMoreItems = data.hasMore;
+            
+            // Remove loading indicators
+            removeLoadingIndicator();
+            
+            // Show "end of content" message when appropriate:
+            // 1. There's no more data to load (!data.hasMore)
+            // 2. AND we've successfully loaded some content in this request (data.files.length > 0)
+            //    OR we already have content in the gallery from previous pages
+            if (!data.hasMore) {
+                const existingItems = gallery.querySelectorAll('.col-3:not(.placeholder-thumbnail)');
+                const hasExistingContent = existingItems.length > 0;
+                const hasNewContent = data.files && data.files.length > 0;
+                
+                console.log(`End of content check: hasMore=${data.hasMore}, existingItems=${existingItems.length}, newItems=${data.files ? data.files.length : 0}`);
+                
+                // Show end message if we have content (either existing or new) and there's no more to load
+                if (hasExistingContent || hasNewContent) {
+                    showNoMoreItemsIndicator();
+                }
+            }
+            
+            isLoadingGallery = false;
+            isLoading = false; // Reset the global loading flag
+            
+            // Update debug display if it exists
+            if (typeof updateDebugDisplay === 'function') {
+                updateDebugDisplay();
+            }
         })
         .catch(error => {
             console.error('Error loading gallery:', error);
             
-            // If it's a 500 error and we're not on the "all" filter, switch to "all"
-            if (error.message.includes('500') && filter !== 'all') {
-                console.log(`Switching to 'all' filter due to server error`);
-                showToast('warning', `Could not load ${filter} category, showing all files instead`);
-                
-                // Switch to all filter after a short delay
-                setTimeout(() => {
-                    currentFilter = 'all';
-                    loadGallery('all', 1);
-                    updateFilterButtonState('all');
-                    
-                    // Update URL
-                    const newUrl = new URL(window.location);
-                    newUrl.searchParams.set('filter', 'all');
-                    window.history.pushState({}, '', newUrl);
-                }, 500);
-                
-                return;
-            }
+            // Hide loading spinner in case of error
+            hideLoadingSpinner();
+            removeLoadingIndicator();
             
-            // Remove placeholders
-            const placeholders = gallery.querySelectorAll('.placeholder-thumbnail');
-            placeholders.forEach(placeholder => placeholder.remove());
+            // Show error toast
+            showToast('error', 'Failed to load files. Please try again.');
             
-            // Show user-friendly error message
+            isLoadingGallery = false;
+            isLoading = false; // Reset the global loading flag
+            
+            // Add retry button if first page load failed
             if (page === 1) {
+            const gallery = document.getElementById('gallery');
                 gallery.innerHTML = `
-                    <div class="col-12 text-center py-5">
-                        <div class="alert alert-danger" role="alert">
-                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
-                            Error loading content: ${error.message}
+                    <div class="col-12 text-center">
+                        <div class="alert alert-danger">
+                            <p>Failed to load files</p>
+                            <button class="btn btn-outline-danger" onclick="loadGallery('${filter}', 1)">
+                                <i class="bi bi-arrow-clockwise"></i> Retry
+                            </button>
                         </div>
-                        <button class="btn btn-primary mt-3" onclick="loadGallery('${filter}', 1)">
-                            <i class="bi bi-arrow-clockwise me-2"></i> Try Again
-                        </button>
                     </div>
                 `;
-            } else {
-                // For subsequent pages, show error at bottom
-                const errorDiv = document.createElement('div');
-                errorDiv.className = 'col-12 text-center py-3';
-                errorDiv.innerHTML = `
-                    <div class="alert alert-warning">
-                        Failed to load more items. 
-                        <button class="btn btn-sm btn-outline-primary ms-2" onclick="loadGallery('${filter}', ${page})">
-                            Try Again
-                        </button>
-                    </div>
-                `;
-                gallery.appendChild(errorDiv);
-            }
-        })
-        .finally(() => {
-            // Hide loading spinner
-            if (loadingSpinner) {
-                loadingSpinner.classList.add('d-none');
             }
             
-            // Re-enable filter buttons
-            filterButtons.forEach(btn => btn.disabled = false);
-            
-            // Reset loading flag
-            isLoading = false;
-            
-            // Ensure the correct filter button is active
-            updateFilterButtonState(filter);
+            // Update debug display if it exists
+            if (typeof updateDebugDisplay === 'function') {
+                updateDebugDisplay();
+            }
         });
 }
 
@@ -372,7 +365,7 @@ function processGalleryData(data, gallery, page, filter) {
     
     // Check if there are no files to display
     if (!data.files || data.files.length === 0) {
-        // Show empty state message
+        // Show empty state message for first page
         if (page === 1) {
             let message = 'No files found';
             let icon = 'bi-folder-x';
@@ -394,7 +387,7 @@ function processGalleryData(data, gallery, page, filter) {
             }
             
             gallery.innerHTML = `
-                <div class="col-12 text-center py-5">
+                <div class="col-12 text-center py-5 w-100">
                     <div class="empty-state">
                         <i class="bi ${icon}" style="font-size: 3rem; opacity: 0.2;"></i>
                         <h5 class="mt-3">${message}</h5>
@@ -405,17 +398,10 @@ function processGalleryData(data, gallery, page, filter) {
                     </div>
                 </div>
             `;
-        } else {
-            // End of content for pagination
-            const endMessage = document.createElement('div');
-            endMessage.className = 'col-12 text-center py-4';
-            endMessage.innerHTML = `
-                <div class="alert alert-light">
-                    <i class="bi bi-check-circle me-2"></i>
-                    You've reached the end of the content
-                </div>
-            `;
-            gallery.appendChild(endMessage);
+        } else if (!data.hasMore) {
+            // For subsequent pages with no results, don't add any content
+            // The end of content message will be handled by loadGallery function
+            console.log('No more files to load for this filter');
         }
         
         // Nothing more to process
@@ -536,7 +522,7 @@ function showImageModal(selectedUrl) {
     const ext = selectedUrl.split('.').pop().toLowerCase();
     const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
     const filename = selectedUrl.split('/').pop();
-    
+
     // Truncate filename to prevent layout issues
     const truncatedFilename = truncateFilename(filename, 30);
     
@@ -554,170 +540,131 @@ function showImageModal(selectedUrl) {
  * Pauses background loading for better performance
  */
 function showSingleImageModal(selectedUrl, filename, truncatedFilename) {
-    // Start performance timer
-    performanceMetrics.startTimer();
-    
-    // Pause background loading operations
+    // Pause background loading for better performance
     pauseBackgroundLoading();
+    
+    // Set the modal open flag to prevent scroll loading
     isModalOpen = true;
     
     const imageModal = document.getElementById('imageModal');
-    const carouselImages = document.getElementById('carouselImages');
-    const imageModalTitle = document.querySelector('#imageModal .modal-title');
+    const modalTitle = imageModal.querySelector('.modal-title');
+    const carousel = imageModal.querySelector('#carouselImages');
     
-    if (!carouselImages || !imageModal) {
-        console.error('Image modal elements not found');
-        return;
-    }
+    // Set the modal title
+    modalTitle.textContent = truncatedFilename || filename;
     
-    // Disable any carousel functionality
-    const prevButton = imageModal.querySelector('.carousel-control-prev');
-    const nextButton = imageModal.querySelector('.carousel-control-next');
-    if (prevButton) prevButton.style.display = 'none';
-    if (nextButton) nextButton.style.display = 'none';
+    // Clear previous items
+    carousel.innerHTML = '';
     
-    // Clear any existing content
-    carouselImages.innerHTML = '';
+    // Create a carousel item for the selected image
+    const carouselItem = document.createElement('div');
+    carouselItem.className = 'carousel-item active';
     
-    // Set modal title
-    if (imageModalTitle) {
-        imageModalTitle.textContent = truncatedFilename;
-        imageModalTitle.title = filename;
-    }
+    // Add a loading indicator
+    carouselItem.classList.add('loading');
     
-    // Update delete button
-    updateModalButtons('imageModal', filename);
+    // Create the image element
+    const imgElement = document.createElement('img');
+    imgElement.className = 'd-block w-100';
+    imgElement.alt = filename;
     
-    // Create image container with loader
-    const imageContainer = document.createElement('div');
-    imageContainer.className = 'carousel-item active';
-    imageContainer.innerHTML = `
-        <div class="position-relative" style="min-height: 200px;">
-            <div class="position-absolute top-50 start-50 translate-middle loader-spinner">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    // Add to carousel
-    carouselImages.appendChild(imageContainer);
-    
-    // Show the modal immediately
-    const modalInstance = new bootstrap.Modal(imageModal);
-    modalInstance.show();
-    
-    // Pre-load the image before adding it to the DOM
-    const imgLoader = new Image();
-    
-    // Set up load event handlers
-    imgLoader.onload = function() {
-        // Record performance metric
-        const loadTime = performanceMetrics.endTimer('Image modal load');
-        performanceMetrics.recordImageLoad(loadTime);
-        console.log(`Average image load time: ${performanceMetrics.getAverageImageLoadTime().toFixed(2)}ms`);
+    // Set up loading events
+    imgElement.onload = function() {
+        carouselItem.classList.remove('loading');
+        carouselItem.classList.add('loaded');
         
-        console.log(`Image loaded successfully: ${selectedUrl}`);
-        
-        // Create and add the visible image
-        const imgElement = document.createElement('img');
-        imgElement.src = selectedUrl;
-        imgElement.className = 'd-block w-100';
-        imgElement.alt = filename;
-        imgElement.style.opacity = '0';
-        imgElement.style.transition = 'opacity 0.3s';
-        
-        // Remove spinner and add the image
-        const spinnerDiv = imageContainer.querySelector('.loader-spinner');
-        if (spinnerDiv) spinnerDiv.remove();
-        
-        // Clear container and add the image
-        imageContainer.querySelector('.position-relative').appendChild(imgElement);
-        
-        // Trigger reflow for smoother animation
-        void imgElement.offsetWidth;
-        
-        // Fade in the image
-        imgElement.style.opacity = '1';
+        // Always generate thumbnail after the image is successfully loaded
+        console.log('Image loaded successfully, generating thumbnail');
+        checkAndGenerateThumbnail(filename, selectedUrl)
+            .then(thumbUrl => {
+                console.log(`Thumbnail generated successfully: ${thumbUrl}`);
+            })
+            .catch(err => {
+                console.error('Error generating thumbnail:', err);
+            });
     };
     
-    imgLoader.onerror = function() {
-        console.error(`Failed to load image: ${selectedUrl}`);
-        
-        // Show error state
-        imageContainer.innerHTML = `
-            <div class="text-center p-5">
-                <div class="text-danger mb-3">
-                    <i class="bi bi-exclamation-triangle-fill" style="font-size: 3rem;"></i>
-                </div>
-                <h5>Error loading image</h5>
-                <p class="text-muted">${selectedUrl}</p>
-                <button class="btn btn-sm btn-outline-primary retry-button">
-                    <i class="bi bi-arrow-clockwise"></i> Retry
-                </button>
+    imgElement.onerror = function() {
+        carouselItem.classList.remove('loading');
+        carouselItem.classList.add('error');
+        carouselItem.innerHTML += `
+            <div class="error-message">
+                Failed to load image. <button class="btn btn-sm btn-light retry-button">Retry</button>
             </div>
         `;
         
-        // Add retry button handler
-        const retryButton = imageContainer.querySelector('.retry-button');
+        // Add retry button functionality
+        const retryButton = carouselItem.querySelector('.retry-button');
         if (retryButton) {
             retryButton.addEventListener('click', function() {
-                showSingleImageModal(selectedUrl, filename, truncatedFilename);
+                // Remove error message
+                const errorMessage = carouselItem.querySelector('.error-message');
+                if (errorMessage) errorMessage.remove();
+                
+                // Add loading class again
+                carouselItem.classList.remove('error');
+                carouselItem.classList.add('loading');
+                
+                // Try loading again with a cache-busting parameter
+                imgElement.src = `${selectedUrl}?t=${Date.now()}`;
             });
         }
     };
     
-    // Add a timeout for very slow connections
-    const loadTimeout = setTimeout(() => {
-        if (!imgLoader.complete) {
-            console.warn(`Image load timeout: ${selectedUrl}`);
-            imgLoader.src = ''; // Cancel the current load
-            
-            // Show error with retry option
-            imageContainer.innerHTML = `
-                <div class="text-center p-5">
-                    <div class="text-warning mb-3">
-                        <i class="bi bi-clock-history" style="font-size: 3rem;"></i>
-                    </div>
-                    <h5>Image is taking too long to load</h5>
-                    <p class="text-muted">The server might be busy or the image may be too large</p>
-                    <button class="btn btn-sm btn-outline-primary retry-button">
-                        <i class="bi bi-arrow-clockwise"></i> Retry
-                    </button>
-                </div>
-            `;
-            
-            // Add retry button handler
-            const retryButton = imageContainer.querySelector('.retry-button');
-            if (retryButton) {
-                retryButton.addEventListener('click', function() {
-                    showSingleImageModal(selectedUrl, filename, truncatedFilename);
-                });
-            }
-        }
-    }, 15000); // 15 seconds timeout
+    // Set the image source
+    imgElement.src = selectedUrl;
+    carouselItem.appendChild(imgElement);
+    carousel.appendChild(carouselItem);
     
-    // Start loading the image
-    imgLoader.src = selectedUrl;
-    
-    // Check if image is already cached
-    if (imgLoader.complete) {
-        console.log('Image already cached, loading immediately');
-        clearTimeout(loadTimeout);
-        imgLoader.onload();
+    // Initialize or refresh the modal
+    if (!imageModal._bsModal) {
+        imageModal._bsModal = new bootstrap.Modal(imageModal);
     }
-
-    // Add handler for modal close
-    imageModal.addEventListener('hidden.bs.modal', function onModalClose() {
+    
+    // Add delete button to modal footer (create the footer if it doesn't exist)
+    let modalFooter = imageModal.querySelector('.modal-footer');
+    if (!modalFooter) {
+        modalFooter = document.createElement('div');
+        modalFooter.className = 'modal-footer';
+        imageModal.querySelector('.modal-content').appendChild(modalFooter);
+    }
+    
+    modalFooter.innerHTML = `
+        <button type="button" class="btn btn-danger delete-modal-btn">
+            <i class="bi bi-trash"></i> Delete
+        </button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+            <i class="bi bi-x-circle"></i> Close
+        </button>
+    `;
+    
+    // Add event listener to delete button
+    const deleteBtn = modalFooter.querySelector('.delete-modal-btn');
+    deleteBtn.addEventListener('click', function() {
+        const confirmDelete = confirm(`Are you sure you want to delete ${truncatedFilename || filename}?`);
+        if (confirmDelete) {
+            deleteFile(filename);
+            imageModal._bsModal.hide();
+        }
+    });
+    
+    // Show the modal
+    imageModal._bsModal.show();
+    
+    // When modal is closed, ensure we clean up event listeners
+    const onModalClose = function() {
+        // Clean up event listeners
+        deleteBtn.removeEventListener('click', deleteBtn.onclick);
+        imageModal.removeEventListener('hidden.bs.modal', onModalClose);
+        
+        // Reset modal open flag to allow scroll loading again
         isModalOpen = false;
         
-        // Resume background loading after a short delay
-        setTimeout(resumeBackgroundLoading, 300);
-        
-        // Remove this specific event listener to avoid duplicates
-        imageModal.removeEventListener('hidden.bs.modal', onModalClose);
-    });
+        // Resume background loading
+        resumeBackgroundLoading();
+    };
+    
+    imageModal.addEventListener('hidden.bs.modal', onModalClose);
 }
 
 /**
@@ -725,187 +672,345 @@ function showSingleImageModal(selectedUrl, filename, truncatedFilename) {
  * Pauses background loading for better performance
  */
 function showVideoModal(selectedUrl, filename, truncatedFilename) {
-    // Pause background loading operations
+    // Pause background loading for better performance
     pauseBackgroundLoading();
+    
+    // Set the modal open flag to prevent scroll loading
     isModalOpen = true;
     
     const videoModal = document.getElementById('videoModal');
-        const carouselVideos = document.getElementById('carouselVideos');
-        const videoModalTitle = document.querySelector('#videoModal .modal-title');
-        
-    if (!carouselVideos || !videoModal) {
-            console.error('Video modal elements not found');
-            return;
-        }
-        
-    // Disable any carousel functionality
-    const prevButton = videoModal.querySelector('.carousel-control-prev');
-    const nextButton = videoModal.querySelector('.carousel-control-next');
-    if (prevButton) prevButton.style.display = 'none';
-    if (nextButton) nextButton.style.display = 'none';
+    const modalTitle = videoModal.querySelector('.modal-title');
+    const carousel = videoModal.querySelector('#carouselVideos');
     
-    // Clear existing content
-    carouselVideos.innerHTML = '';
+    // Set the modal title
+    modalTitle.textContent = truncatedFilename || filename;
     
-    // Set modal title
-        if (videoModalTitle) {
-        videoModalTitle.textContent = truncatedFilename;
-        videoModalTitle.title = filename;
+    // Clear previous items
+    carousel.innerHTML = '';
+    
+    // Create a carousel item for the selected video
+    const carouselItem = document.createElement('div');
+    carouselItem.className = 'carousel-item active loading';
+    
+    // Create the video element
+    const videoElement = document.createElement('video');
+    videoElement.className = 'd-block w-100';
+    videoElement.controls = true;
+    videoElement.autoplay = true;
+    
+    // CRITICAL FIX: Extract just the filename without path for server operations
+    const filenameOnly = filename.includes('/') ? 
+        filename.substring(filename.lastIndexOf('/') + 1) : filename;
+    
+    // Check if the filename has a proper video extension before generating the thumbnail
+    const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
+    if (['.mp4', '.webm', '.mov', '.avi', '.mkv'].includes(ext)) {
+        console.log(`Force generating thumbnail for video: ${filenameOnly} (extension: ${ext})`);
+        
+        // First, explicitly generate the thumbnail for this video
+        // Use a timeout to ensure this happens independently of other operations
+        setTimeout(() => {
+            fetch(`/generate-thumbnail/${filenameOnly}`, {
+                method: 'POST'
+            })
+            .then(res => {
+                if (!res.ok) {
+                    throw new Error(`Server returned ${res.status} ${res.statusText}`);
+                }
+                return res.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    console.log(`Successfully generated thumbnail for video ${filenameOnly}`, data);
+                    
+                    // Calculate correct baseName for thumbnail lookup
+                    const baseName = filenameOnly.substring(0, filenameOnly.lastIndexOf('.'));
+                    const expectedThumbnailPath = `/thumbnails/${baseName}.jpg`;
+                    
+                    // Log details about the path for debugging
+                    console.log(`Expected thumbnail path: ${expectedThumbnailPath}`);
+                    console.log(`Server returned thumbnail path: ${data.thumbnail}`);
+                    
+                    // Update any instances in the gallery
+                    updateThumbnailInGallery(filename, data.thumbnail);
+                    
+                    // Set flag to force thumbnail reload on next page load
+                    localStorage.setItem('forceReloadThumbnails', 'true');
+                    localStorage.setItem('lastUpdatedThumbnail', filename);
+                    
+                    // Verify the thumbnail was created by checking its existence
+                    fetch(`${data.thumbnail}?t=${Date.now()}`, { method: 'HEAD' })
+                        .then(headRes => {
+                            if (headRes.ok) {
+                                console.log(`Thumbnail exists at: ${data.thumbnail}`);
+                            } else {
+                                console.warn(`Thumbnail was generated but not found at: ${data.thumbnail}`);
+                            }
+                        });
+                } else {
+                    console.error(`Failed to generate thumbnail for video ${filenameOnly}:`, data.error || 'Unknown error');
+                }
+            })
+            .catch(err => {
+                console.error(`Error generating thumbnail for video ${filenameOnly}:`, err);
+            });
+        }, 100);
+    } else {
+        console.warn(`File ${filename} doesn't appear to be a supported video format (ext: ${ext})`);
     }
     
-    // Update buttons
-    updateModalButtons('videoModal', filename);
+    // Set up loading and error events
+    videoElement.addEventListener('loadeddata', function() {
+        carouselItem.classList.remove('loading');
+        carouselItem.classList.add('loaded');
+    });
     
-    // Create video container with loader
-    const videoContainer = document.createElement('div');
-    videoContainer.className = 'carousel-item active';
-    videoContainer.innerHTML = `
-        <div class="position-relative" style="min-height: 200px;">
-            <div class="position-absolute top-50 start-50 translate-middle loader-spinner">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    // Add container first
-    carouselVideos.appendChild(videoContainer);
-    
-    // Show the modal immediately
-    const modalInstance = new bootstrap.Modal(videoModal);
-    modalInstance.show();
-    
-    // Create video element
-        const video = document.createElement('video');
-        video.className = 'd-block w-100';
-        video.controls = true;
-        video.autoplay = true;
-    video.playsInline = true;
-    video.muted = false;
-    
-    // Add load event handlers
-    video.onloadeddata = function() {
-        console.log(`Video loaded successfully: ${selectedUrl}`);
-        const spinner = videoContainer.querySelector('.loader-spinner');
-        if (spinner) spinner.remove();
-    };
-    
-    video.onerror = function(e) {
-        console.error(`Failed to load video: ${selectedUrl}`, e);
-        
-        videoContainer.innerHTML = `
-            <div class="text-center p-5">
-                <div class="text-danger mb-3">
-                    <i class="bi bi-exclamation-triangle-fill" style="font-size: 3rem;"></i>
-                </div>
-                <h5>Error loading video</h5>
-                <p class="text-muted">${selectedUrl}</p>
-                <button class="btn btn-sm btn-outline-primary retry-button">
-                    <i class="bi bi-arrow-clockwise"></i> Retry
-                </button>
+    videoElement.addEventListener('error', function() {
+        carouselItem.classList.remove('loading');
+        carouselItem.classList.add('error');
+        carouselItem.innerHTML += `
+            <div class="error-message">
+                Failed to load video. <button class="btn btn-sm btn-light retry-button">Retry</button>
             </div>
         `;
         
-        // Add retry button handler
-        const retryButton = videoContainer.querySelector('.retry-button');
+        // Add retry button functionality
+        const retryButton = carouselItem.querySelector('.retry-button');
         if (retryButton) {
             retryButton.addEventListener('click', function() {
-                showVideoModal(selectedUrl, filename, truncatedFilename);
+                // Remove error message
+                const errorMessage = carouselItem.querySelector('.error-message');
+                if (errorMessage) errorMessage.remove();
+                
+                // Add loading class again
+                carouselItem.classList.remove('error');
+                carouselItem.classList.add('loading');
+                
+                // Try loading again with a cache-busting parameter
+                videoElement.src = `${selectedUrl}?t=${Date.now()}`;
             });
         }
-    };
+    });
     
-    // Add a timeout for very slow connections
-    const loadTimeout = setTimeout(() => {
-        if (!video.readyState) {
-            console.warn(`Video load timeout: ${selectedUrl}`);
-            video.src = ''; // Cancel the current load
-            
-            // Show error with retry option
-            videoContainer.innerHTML = `
-                <div class="text-center p-5">
-                    <div class="text-warning mb-3">
-                        <i class="bi bi-clock-history" style="font-size: 3rem;"></i>
-                    </div>
-                    <h5>Video is taking too long to load</h5>
-                    <p class="text-muted">The server might be busy or the video may be too large</p>
-                    <button class="btn btn-sm btn-outline-primary retry-button">
-                        <i class="bi bi-arrow-clockwise"></i> Retry
-                    </button>
-                </div>
-            `;
-            
-            // Add retry button handler
-            const retryButton = videoContainer.querySelector('.retry-button');
-            if (retryButton) {
-                retryButton.addEventListener('click', function() {
-                    showVideoModal(selectedUrl, filename, truncatedFilename);
-                });
-            }
+    // Set the video source
+    videoElement.src = selectedUrl;
+    carouselItem.appendChild(videoElement);
+    carousel.appendChild(carouselItem);
+    
+    // Initialize or refresh the modal
+    if (!videoModal._bsModal) {
+        videoModal._bsModal = new bootstrap.Modal(videoModal);
+    }
+    
+    // Add delete button to modal footer (create the footer if it doesn't exist)
+    let modalFooter = videoModal.querySelector('.modal-footer');
+    if (!modalFooter) {
+        modalFooter = document.createElement('div');
+        modalFooter.className = 'modal-footer';
+        videoModal.querySelector('.modal-content').appendChild(modalFooter);
+    }
+    
+    modalFooter.innerHTML = `
+        <button type="button" class="btn btn-danger delete-modal-btn">
+            <i class="bi bi-trash"></i> Delete
+        </button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+            <i class="bi bi-x-circle"></i> Close
+        </button>
+    `;
+    
+    // Add event listener to delete button
+    const deleteBtn = modalFooter.querySelector('.delete-modal-btn');
+    deleteBtn.addEventListener('click', function() {
+        const confirmDelete = confirm(`Are you sure you want to delete ${truncatedFilename || filename}?`);
+        if (confirmDelete) {
+            deleteFile(filename);
+            videoModal._bsModal.hide();
         }
-    }, 20000); // 20 seconds timeout for videos
+    });
     
-    // Check if video URL is valid
-    fetch(selectedUrl, { method: 'HEAD' })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
-            // URL is valid, proceed with loading
-            video.src = selectedUrl;
-            
-            // Add to container after verification
-            videoContainer.querySelector('.position-relative').appendChild(video);
-            
-            // Clear timeout if successful
-            clearTimeout(loadTimeout);
-        })
-        .catch(error => {
-            console.error(`Error checking video URL: ${error}`);
-            
-            // Show error state
-            videoContainer.innerHTML = `
-                <div class="text-center p-5">
-                    <div class="text-danger mb-3">
-                        <i class="bi bi-exclamation-triangle-fill" style="font-size: 3rem;"></i>
-                    </div>
-                    <h5>Error accessing video</h5>
-                    <p class="text-muted">Could not access: ${selectedUrl}</p>
-                    <p>Error: ${error.message}</p>
-                    <button class="btn btn-sm btn-outline-primary retry-button">
-                        <i class="bi bi-arrow-clockwise"></i> Retry
-                    </button>
-                </div>
-            `;
-            
-            // Add retry button handler
-            const retryButton = videoContainer.querySelector('.retry-button');
-            if (retryButton) {
-                retryButton.addEventListener('click', function() {
-                    showVideoModal(selectedUrl, filename, truncatedFilename);
-                });
-            }
-            
-            // Clear timeout
-            clearTimeout(loadTimeout);
-        });
-
-    // Add handler for modal close
-    videoModal.addEventListener('hidden.bs.modal', function onModalClose() {
+    // Show the modal
+    videoModal._bsModal.show();
+    
+    // When modal is closed, ensure we clean up event listeners and stop video playback
+    const onModalClose = function() {
+        // When modal is closed, generate thumbnail one more time to ensure it exists
+        if (['.mp4', '.webm', '.mov', '.avi', '.mkv'].includes(ext)) {
+            console.log(`Regenerating thumbnail for ${filenameOnly} on modal close`);
+            fetch(`/generate-thumbnail/${filenameOnly}`, {
+                method: 'POST'
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    console.log(`Successfully generated thumbnail for ${filenameOnly} on modal close`);
+                    // Set flag to force reload thumbnails on next page load
+                    localStorage.setItem('forceReloadThumbnails', 'true');
+                }
+            })
+            .catch(err => {
+                console.error(`Error generating thumbnail on modal close: ${err}`);
+            });
+        }
+    
+        // Stop video playback
+        const videoPlayer = carousel.querySelector('video');
+        if (videoPlayer) {
+            videoPlayer.pause();
+            videoPlayer.currentTime = 0;
+            videoPlayer.src = ''; // Clear the source to fully stop the video
+        }
+        
+        // Clean up event listeners
+        deleteBtn.removeEventListener('click', deleteBtn.onclick);
+        videoModal.removeEventListener('hidden.bs.modal', onModalClose);
+        
+        // Reset modal open flag to allow scroll loading again
         isModalOpen = false;
         
-        // Resume background loading after a short delay
-        setTimeout(resumeBackgroundLoading, 300);
+        // Resume background loading
+        resumeBackgroundLoading();
+    };
+    
+    videoModal.addEventListener('hidden.bs.modal', onModalClose);
+}
+
+/**
+ * Updates a thumbnail in the gallery
+ * @param {string} filename - Filename to update thumbnail for
+ * @param {string} thumbnailPath - Path to the new thumbnail
+ */
+function updateThumbnailInGallery(filename, thumbnailPath) {
+    try {
+        console.log(`Updating thumbnail in gallery for ${filename} with ${thumbnailPath}`);
+        const gallery = document.getElementById('gallery');
+        if (!gallery) return;
         
-        // Remove this specific event listener to avoid duplicates
-        videoModal.removeEventListener('hidden.bs.modal', onModalClose);
-    });
+        // Find the column element with this filename
+        const columns = gallery.querySelectorAll(`[data-filename="${filename}"]`);
+        if (!columns || columns.length === 0) {
+            console.log(`No gallery item found for ${filename}`);
+            return;
+        }
+        
+        // Add cache busting parameter
+        const thumbnailUrl = `${thumbnailPath}?t=${Date.now()}`;
+        
+        columns.forEach(column => {
+            // Find the thumbnail img element
+            const img = column.querySelector('.thumbnail-img');
+            if (img) {
+                console.log(`Found img element for ${filename}, updating src to ${thumbnailUrl}`);
+                img.src = thumbnailUrl;
+                
+                // Also update the cached thumbnail URL
+                try {
+                    localStorage.setItem(`thumb_${filename}`, thumbnailPath);
+                } catch (e) {
+                    console.warn(`Error updating cached thumbnail for ${filename}:`, e);
+                }
+            } else {
+                console.log(`No thumbnail img found for ${filename}, creating one`);
+                
+                // Get the card container
+                const card = column.querySelector('.card');
+                if (!card) return;
+                
+                // Get the thumbnail container
+                const thumbnailContainer = card.querySelector('.thumbnail-container');
+                if (!thumbnailContainer) return;
+                
+                // Replace the current content with the new thumbnail
+                const fileUrl = `/uploads/${filename}`;
+                const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
+                
+                if (['.mp4', '.webm', '.mov', '.ogg'].includes(ext)) {
+                    // For videos, keep the play button and duration badge
+                    let duration = localStorage.getItem(`duration_${filename}`);
+                    if (!duration) duration = "0:00";
+                    
+                    thumbnailContainer.innerHTML = `
+                        <img src="${thumbnailUrl}" class="thumbnail-img card-img-top" loading="lazy" data-url="${fileUrl}" data-filename="${filename}">
+                        <span class="position-absolute bottom-0 end-0 badge bg-dark m-2">
+                            ${duration}
+                        </span>
+                        <div class="position-absolute" style="top: 0; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; align-items: center; pointer-events: none;">
+                            <i class="bi bi-play-circle-fill text-white" style="font-size: 2rem; opacity: 0.8;"></i>
+                        </div>
+                    `;
+                    
+                    // Attach video click handler
+                    attachVideoClickHandler(thumbnailContainer, fileUrl, filename);
+                } else {
+                    // For images, just show the thumbnail
+                    thumbnailContainer.innerHTML = `
+                        <img src="${thumbnailUrl}" class="thumbnail-img card-img-top" loading="lazy" data-url="${fileUrl}" data-filename="${filename}">
+                    `;
+                    
+                    // Attach image click handler
+                    const newImg = thumbnailContainer.querySelector('.thumbnail-img');
+                    if (newImg) {
+                        newImg.addEventListener('click', function() {
+                            showSingleImageModal(fileUrl, filename, truncateFilename(filename, 15));
+                        });
+                    }
+                }
+                
+                // Cache the thumbnail URL
+                try {
+                    localStorage.setItem(`thumb_${filename}`, thumbnailPath);
+                } catch (e) {
+                    // If storage is full, clear old thumbnails and try again
+                    clearOldThumbnails();
+                    try {
+                        localStorage.setItem(`thumb_${filename}`, thumbnailPath);
+                    } catch (e2) {
+                        console.warn(`Failed to cache thumbnail for ${filename}:`, e2);
+                    }
+                }
+            }
+        });
+    } catch (err) {
+        console.error(`Error updating thumbnail in gallery for ${filename}:`, err);
+    }
 }
 
 // Add this to your DOMContentLoaded event handler
 document.addEventListener('DOMContentLoaded', function() {
+    // Check if we need to force reload thumbnails after generating new ones
+    const forceReloadThumbnails = localStorage.getItem('forceReloadThumbnails') === 'true';
+    const lastUpdatedThumbnail = localStorage.getItem('lastUpdatedThumbnail');
+    
+    if (forceReloadThumbnails) {
+        console.log('Force reloading thumbnails due to new generated thumbnails');
+        
+        // Clear the flags to avoid repeated reloads
+        localStorage.removeItem('forceReloadThumbnails');
+        localStorage.removeItem('lastUpdatedThumbnail');
+        
+        // Remove all thumbnail caches to force fresh loads
+        const keys = Object.keys(localStorage);
+        keys.forEach(key => {
+            if (key.startsWith('thumb_') || key.startsWith('img_thumb_') || key.startsWith('duration_')) {
+                console.log(`Clearing cached thumbnail: ${key}`);
+                localStorage.removeItem(key);
+            }
+        });
+        
+        // Add a timestamp parameter to all image elements to force a fresh load
+        setTimeout(() => {
+            const allThumbnails = document.querySelectorAll('img.thumbnail-img, img.card-img-top');
+            console.log(`Refreshing ${allThumbnails.length} thumbnails with cache-busting`);
+            
+            allThumbnails.forEach(img => {
+                if (img.src && !img.src.startsWith('data:')) {
+                    const currentSrc = img.src.split('?')[0]; // Remove any existing query params
+                    img.src = `${currentSrc}?t=${Date.now()}`;
+                }
+            });
+        }, 500); // Short delay to ensure DOM has loaded
+    }
+    
     // Clear any existing event handlers from filter buttons
     const filterButtons = document.querySelectorAll('.btn-filter');
     filterButtons.forEach(button => {
@@ -948,11 +1053,22 @@ document.addEventListener('DOMContentLoaded', function() {
     // Add Back to Top button
     addBackToTopButton();
     
-    // Ensure scroll listener is attached
-    window.removeEventListener('scroll', handleScroll); // Remove first to avoid duplicates
-    window.addEventListener('scroll', handleScroll);
+    // Ensure scroll listeners are attached properly
+    // First remove any existing listeners to avoid duplicates
+    window.removeEventListener('scroll', handleScroll);
+    window.removeEventListener('scroll', handleScrollDirection);
     
-    // Add this to your DOMContentLoaded event handler
+    // Now add them back
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('scroll', handleScrollDirection, { passive: true });
+    
+    console.log('Scroll event listeners initialized');
+    
+    // Reset state flags
+    isLoading = false;
+    isLoadingGallery = false;
+    isModalOpen = false;
+    
     document.addEventListener('click', function(event) {
         // Check if click was on a loading indicator or its close button
         if (event.target.closest('.gallery-loading-indicator') || 
@@ -963,9 +1079,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Add this to your DOMContentLoaded event handler
-    window.addEventListener('scroll', handleScrollDirection);
-
     // Remove debug buttons if they exist
     const loadMoreDebugBtn = document.getElementById('loadMoreDebug');
     if (loadMoreDebugBtn) loadMoreDebugBtn.remove();
@@ -973,42 +1086,14 @@ document.addEventListener('DOMContentLoaded', function() {
     const cleanupBtn = document.getElementById('cleanupPlaceholdersBtn');
     if (cleanupBtn) cleanupBtn.remove();
 
-    // Add event handlers for image/video loading in modals
-    document.querySelectorAll('#imageModal, #videoModal').forEach(modal => {
-        modal.addEventListener('shown.bs.modal', function() {
-            // Mark carousel items as loading
-            const items = this.querySelectorAll('.carousel-item');
-            items.forEach(item => {
-                item.classList.add('loading');
-                
-                // Add load event handlers for images
-                const img = item.querySelector('img');
-                if (img) {
-                    img.onload = function() {
-                        item.classList.remove('loading');
-                    };
-                    img.onerror = function() {
-                        item.classList.remove('loading');
-                        item.classList.add('load-error');
-                        item.innerHTML += `<div class="error-message">Failed to load image</div>`;
-                    };
-                }
-                
-                // Add load event handlers for videos
-                const video = item.querySelector('video');
-            if (video) {
-                    video.onloadeddata = function() {
-                        item.classList.remove('loading');
-                    };
-                    video.onerror = function() {
-                        item.classList.remove('loading');
-                        item.classList.add('load-error');
-                        item.innerHTML += `<div class="error-message">Failed to load video</div>`;
-                    };
-                }
-            });
-        });
-    });
+    // Set up modal events for proper state tracking
+    setupModalEvents();
+    
+    // Add debug tools if in development mode
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        addDebugTools();
+        console.log('Debug tools added');
+    }
 });
 
 function captureVideoFrame(url, callback) {
@@ -1165,47 +1250,323 @@ function initLazyLoading() {
 }
 
 function generateVideoThumbnail(url, filename, containerElement) {
-    captureVideoFrame(url, function(thumbnail, duration) {
-        try {
-            // Try to cache the thumbnail and duration
-            localStorage.setItem(`thumb_${filename}`, thumbnail);
-            localStorage.setItem(`duration_${filename}`, duration);
-        } catch (e) {
-            // If storage is full, clear old thumbnails and try again
-            if (e.name === 'QuotaExceededError') {
-                clearOldThumbnails();
-                try {
-                    localStorage.setItem(`thumb_${filename}`, thumbnail);
-                    localStorage.setItem(`duration_${filename}`, duration);
-                } catch (e2) {
-                    console.warn('Failed to cache thumbnail:', e2);
+    // First check if a server-side thumbnail exists
+    const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
+    
+    // Extract just the filename without any path components
+    const filenameOnly = filename.includes('/') ? 
+        filename.substring(filename.lastIndexOf('/') + 1) : 
+        filename;
+    
+    // Get the base name without extension for thumbnail lookup
+    const baseName = filenameOnly.substring(0, filenameOnly.lastIndexOf('.'));
+    
+    // The server thumbnail path should use the base filename without extension
+    const serverThumbnailPath = `/thumbnails/${baseName}.jpg`;
+    
+    console.log(`Video thumbnail lookup: filename=${filename}, baseName=${baseName}, path=${serverThumbnailPath}`);
+    
+    // Try server-side thumbnail first with cache busting
+    fetch(`${serverThumbnailPath}?t=${Date.now()}`, { method: 'HEAD' })
+        .then(response => {
+            if (response.ok) {
+                console.log(`Using existing server thumbnail for video ${filename}`);
+                // Server thumbnail exists, use it
+                const thumbnailUrl = `${serverThumbnailPath}?t=${Date.now()}`;
+                
+                // Get duration from localStorage if available
+                let duration = localStorage.getItem(`duration_${filename}`);
+                if (!duration) {
+                    duration = "0:00"; // Default duration if not cached
+                    
+                    // Try to get actual duration
+                    const video = document.createElement('video');
+                    video.src = url;
+                    video.onloadedmetadata = function() {
+                        const seconds = Math.floor(video.duration);
+                        const minutes = Math.floor(seconds / 60);
+                        const remainingSeconds = seconds % 60;
+                        duration = `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+                        localStorage.setItem(`duration_${filename}`, duration);
+                        
+                        // Update duration in UI if element exists
+                        const durationSpan = containerElement.querySelector('.video-duration');
+                        if (durationSpan) {
+                            durationSpan.textContent = duration;
+                        }
+                    };
+                    video.load();
                 }
+                
+                // Replace the placeholder with the actual thumbnail
+                containerElement.innerHTML = `
+                    <div class="card h-100">
+                        <div class="thumbnail-container position-relative">
+                            <img src="${thumbnailUrl}" class="thumbnail-img card-img-top" loading="lazy" data-url="${url}" data-filename="${filename}">
+                            <span class="position-absolute bottom-0 end-0 badge bg-dark m-2 video-duration">
+                                ${duration}
+                            </span>
+                            <div class="position-absolute" style="top: 0; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; align-items: center; pointer-events: none;">
+                                <i class="bi bi-play-circle-fill text-white" style="font-size: 2rem; opacity: 0.8;"></i>
+                            </div>
+                        </div>
+                    </div>`;
+                
+                // Add click handler
+                attachVideoClickHandler(containerElement.querySelector('.thumbnail-container'), url, filename);
+            } else {
+                console.log(`No server thumbnail found for video ${filename}, generating one`);
+                // No server thumbnail, try to generate one
+                fetch(`/generate-thumbnail/${filenameOnly}`, { method: 'POST' })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            console.log(`Successfully generated server thumbnail for video ${filename}`, data);
+                            // Use the server-generated thumbnail with cache-busting
+                            const thumbnailUrl = `${data.thumbnail}?t=${Date.now()}`;
+                            
+                            // Store this successful thumbnail URL for debugging
+                            try {
+                                localStorage.setItem('lastThumbnailUrl', thumbnailUrl);
+                                localStorage.setItem('lastThumbnailFile', filenameOnly);
+                            } catch (e) {
+                                console.warn('Error storing debug info:', e);
+                            }
+                            
+                            // Get or generate duration
+                            const video = document.createElement('video');
+                            video.src = url;
+                            video.onloadedmetadata = function() {
+                                const seconds = Math.floor(video.duration);
+                                const minutes = Math.floor(seconds / 60);
+                                const remainingSeconds = seconds % 60;
+                                const duration = `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+                                
+                                // Cache the duration
+                                localStorage.setItem(`duration_${filename}`, duration);
+                                
+                                // Update the thumbnail in the UI
+                                containerElement.innerHTML = `
+                                    <div class="card h-100">
+                                        <div class="thumbnail-container position-relative">
+                                            <img src="${thumbnailUrl}" class="thumbnail-img card-img-top" loading="lazy" data-url="${url}" data-filename="${filename}">
+                                            <span class="position-absolute bottom-0 end-0 badge bg-dark m-2">
+                                                ${duration}
+                                            </span>
+                                            <div class="position-absolute" style="top: 0; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; align-items: center; pointer-events: none;">
+                                                <i class="bi bi-play-circle-fill text-white" style="font-size: 2rem; opacity: 0.8;"></i>
+                                            </div>
+                                        </div>
+                                    </div>`;
+                                
+                                // Also force the thumbnail to be updated in the gallery
+                                updateThumbnailInGallery(filename, data.thumbnail);
+                                
+                                // Set flag to force thumbnail reload
+                                localStorage.setItem('forceReloadThumbnails', 'true');
+                                localStorage.setItem('lastUpdatedThumbnail', filename);
+                                
+                                // Add click handler
+                                attachVideoClickHandler(containerElement.querySelector('.thumbnail-container'), url, filename);
+                            };
+                            
+                            // Force load video metadata
+                            video.load();
+                            
+                            // If metadata loading fails, still show the thumbnail with a default duration
+                            video.onerror = function() {
+                                console.warn(`Could not load video metadata for ${filename}`);
+                                containerElement.innerHTML = `
+                                    <div class="card h-100">
+                                        <div class="thumbnail-container position-relative">
+                                            <img src="${thumbnailUrl}" class="thumbnail-img card-img-top" loading="lazy" data-url="${url}" data-filename="${filename}">
+                                            <span class="position-absolute bottom-0 end-0 badge bg-dark m-2">
+                                                0:00
+                                            </span>
+                                            <div class="position-absolute" style="top: 0; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; align-items: center; pointer-events: none;">
+                                                <i class="bi bi-play-circle-fill text-white" style="font-size: 2rem; opacity: 0.8;"></i>
+                                            </div>
+                                        </div>
+                                    </div>`;
+                                
+                                // Also force the thumbnail to be updated in the gallery
+                                updateThumbnailInGallery(filename, data.thumbnail);
+                                
+                                // Add click handler
+                                attachVideoClickHandler(containerElement.querySelector('.thumbnail-container'), url, filename);
+                            };
+                        } else {
+                            // Fall back to client-side thumbnail generation if server fails
+                            console.warn(`Failed to generate server thumbnail for ${filename}. Falling back to client-side generation.`);
+                            generateClientSideVideoThumbnail(url, filename, containerElement);
+                        }
+                    })
+                    .catch(err => {
+                        console.error(`Error generating server thumbnail for ${filename}:`, err);
+                        // Fall back to client-side thumbnail generation
+                        generateClientSideVideoThumbnail(url, filename, containerElement);
+                    });
             }
-        }
+        })
+        .catch(err => {
+            console.error(`Error checking server thumbnail for ${filename}:`, err);
+            // Fall back to client-side thumbnail generation
+            generateClientSideVideoThumbnail(url, filename, containerElement);
+        });
+}
+
+/**
+ * Helper function to attach click handler to video thumbnails
+ */
+function attachVideoClickHandler(thumbnailContainer, url, filename) {
+    if (thumbnailContainer) {
+        thumbnailContainer.addEventListener('click', function(event) {
+            // Only trigger if the click wasn't on a button or link
+            if (!event.target.closest('button') && !event.target.closest('a')) {
+                showVideoModal(url, filename, truncateFilename(filename));
+            }
+        });
+    }
+}
+
+/**
+ * Client-side video thumbnail generation (fallback)
+ */
+function generateClientSideVideoThumbnail(url, filename, containerElement) {
+    console.log(`Generating client-side thumbnail for video ${filename}`);
+    // Create a video element
+    const video = document.createElement('video');
+    video.src = url;
+    video.crossOrigin = 'anonymous';
+    
+    // Get or set video duration
+    let duration = localStorage.getItem(`duration_${filename}`);
+    
+    // Set up video metadata loading
+    video.onloadedmetadata = function() {
+        console.log(`Video metadata loaded for ${filename}, duration: ${video.duration}`);
         
-        // Replace the placeholder with the actual thumbnail
+        // Calculate and cache duration
+        const seconds = Math.floor(video.duration);
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = seconds % 60;
+        duration = `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+        localStorage.setItem(`duration_${filename}`, duration);
+        
+        // When video can play, capture a frame for thumbnail
+        video.currentTime = 1.0; // Skip to 1 second mark for thumbnail
+    };
+    
+    // Handle errors with video loading
+    video.onerror = function() {
+        console.error(`Error loading video for thumbnail: ${filename}`, video.error);
+        
+        // Create a placeholder for error
         containerElement.innerHTML = `
             <div class="card h-100">
-                <div class="position-relative">
-                    <img src="${cachedThumbnail}" class="card-img-top" loading="lazy" data-url="${url}" data-filename="${filename}">
+                <div class="thumbnail-container position-relative">
+                    <div class="d-flex justify-content-center align-items-center bg-light w-100 h-100">
+                        <i class="bi bi-film text-dark" style="font-size: 2rem;"></i>
+                    </div>
                     <span class="position-absolute bottom-0 end-0 badge bg-dark m-2">
-                        ${duration}
+                        ${duration || '0:00'}
                     </span>
                     <div class="position-absolute" style="top: 0; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; align-items: center; pointer-events: none;">
                         <i class="bi bi-play-circle-fill text-white" style="font-size: 2rem; opacity: 0.8;"></i>
                     </div>
                 </div>
             </div>`;
-        col.querySelector('img').addEventListener('click', function() {
-            const url = this.getAttribute('data-url');
-            const filename = this.getAttribute('data-filename');
-            if (url && filename) {
-                showImageModal(url, filename);
-            } else {
-                console.error('Missing URL or filename for clicked image');
+        
+        // Add click handler despite error
+        attachVideoClickHandler(containerElement.querySelector('.thumbnail-container'), url, filename);
+    };
+    
+    // When the time updates (after seeking to currentTime), capture the frame
+    video.ontimeupdate = function() {
+        if (video.readyState >= 2) { // Has enough data to capture frame
+            try {
+                // Create canvas to capture video frame
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                
+                // Draw the video frame to canvas
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // Get data URL from canvas
+                let thumbnailUrl;
+                try {
+                    thumbnailUrl = canvas.toDataURL('image/jpeg', 0.7);
+                    
+                    // Save to localStorage if not too large (avoid quota issues)
+                    if (thumbnailUrl.length < 100000) { // Only cache if less than ~100KB
+                        try {
+                            localStorage.setItem(`thumb_${filename}`, thumbnailUrl);
+                        } catch (e) {
+                            console.warn('Cannot store thumbnail in localStorage:', e);
+                            // Try clearing space
+                            clearOldThumbnails();
+                        }
+                    }
+                } catch (e) {
+                    console.error('Could not generate thumbnail for cross-origin video:', e);
+                    thumbnailUrl = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMjIyIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIyNCIgZmlsbD0iI2ZmZiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSI+VmlkZW88L3RleHQ+PC9zdmc+';
+                }
+                
+                // Update the container with the thumbnail
+                containerElement.innerHTML = `
+                    <div class="card h-100">
+                        <div class="thumbnail-container position-relative">
+                            <img src="${thumbnailUrl}" class="thumbnail-img card-img-top" loading="lazy" data-url="${url}" data-filename="${filename}">
+                            <span class="position-absolute bottom-0 end-0 badge bg-dark m-2">
+                                ${duration || '0:00'}
+                            </span>
+                            <div class="position-absolute" style="top: 0; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; align-items: center; pointer-events: none;">
+                                <i class="bi bi-play-circle-fill text-white" style="font-size: 2rem; opacity: 0.8;"></i>
+                            </div>
+                        </div>
+                    </div>`;
+                
+                // Add click handler
+                attachVideoClickHandler(containerElement.querySelector('.thumbnail-container'), url, filename);
+                
+                // Cleanup
+                video.pause();
+                video.src = '';
+                video.remove();
+            } catch (error) {
+                console.error('Error generating client-side thumbnail:', error);
+                
+                // Show a fallback image
+                containerElement.innerHTML = `
+                    <div class="card h-100">
+                        <div class="thumbnail-container position-relative">
+                            <div class="d-flex justify-content-center align-items-center bg-light w-100 h-100">
+                                <i class="bi bi-film text-dark" style="font-size: 2rem;"></i>
+                            </div>
+                            <span class="position-absolute bottom-0 end-0 badge bg-dark m-2">
+                                ${duration || '0:00'}
+                            </span>
+                            <div class="position-absolute" style="top: 0; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; align-items: center; pointer-events: none;">
+                                <i class="bi bi-play-circle-fill text-white" style="font-size: 2rem; opacity: 0.8;"></i>
+                            </div>
+                        </div>
+                    </div>`;
+                
+                // Add click handler despite error
+                attachVideoClickHandler(containerElement.querySelector('.thumbnail-container'), url, filename);
+                
+                // Cleanup
+                video.pause();
+                video.src = '';
+                video.remove();
             }
-        });
-    });
+        }
+    };
+    
+    // Start video loading
+    video.load();
 }
 
 // Back to Top button function
@@ -1258,27 +1619,22 @@ function cleanupStaleLoadingIndicators() {
 setInterval(cleanupStaleLoadingIndicators, 5000);
 
 /**
- * Creates a smaller set of placeholder thumbnails to show while loading content
+ * Creates placeholder thumbnails for loading state
  * @param {number} count - Number of placeholders to create
- * @returns {DocumentFragment} Fragment containing placeholder thumbnails
+ * @returns {DocumentFragment} Fragment containing the placeholders
  */
 function createPlaceholderThumbnails(count = 5) {
-    // Always use exactly 5 thumbnails
-    count = 5;
-    
     const fragment = document.createDocumentFragment();
     
     for (let i = 0; i < count; i++) {
-        const col = document.createElement('div');
-        col.className = 'col-3 mb-3 placeholder-thumbnail';
-        col.dataset.placeholderId = `placeholder-${Date.now()}-${i}`;
+        const column = document.createElement('div');
+        column.className = 'col-3 col-md-3 col-lg-2 col-xl-1 mb-3 placeholder-thumbnail';
         
-        // Enhanced placeholder with larger spinner and gradient background
-        col.innerHTML = `
-            <div class="card h-100 position-relative">
-                <div class="placeholder-content" style="aspect-ratio: 1/1; background: linear-gradient(to bottom right, #f0f0f0, #e6e6e6); border-radius: 4px;">
-                    <div class="position-absolute top-50 start-50 translate-middle text-center">
-                        <div class="spinner-border text-primary" role="status" style="width: 2rem; height: 2rem;">
+        column.innerHTML = `
+            <div class="card h-100">
+                <div class="thumbnail-container">
+                    <div class="placeholder-content d-flex justify-content-center align-items-center" style="height: 150px; background-color: #f8f9fa;">
+                        <div class="spinner-border text-primary" role="status">
                             <span class="visually-hidden">Loading...</span>
                         </div>
                     </div>
@@ -1286,12 +1642,7 @@ function createPlaceholderThumbnails(count = 5) {
             </div>
         `;
         
-        // Add a shimmer effect
-        const shimmer = document.createElement('div');
-        shimmer.className = 'shimmer-effect';
-        col.querySelector('.placeholder-content').appendChild(shimmer);
-        
-        fragment.appendChild(col);
+        fragment.appendChild(column);
     }
     
     return fragment;
@@ -1324,8 +1675,16 @@ function showNoMoreItemsIndicator() {
     // Check if indicator already exists
     if (gallery.querySelector('.no-more-items')) return;
     
+    // Check if the gallery has actual content before showing the message
+    const actualContent = gallery.querySelectorAll('.col-3');
+    if (actualContent.length === 0) {
+        console.log('Not showing end message because no actual content exists');
+        return; // Don't show the message if there's no actual content
+    }
+    
+    console.log(`Showing end of content message (${actualContent.length} items displayed)`);
     const indicator = document.createElement('div');
-    indicator.className = 'col-12 text-center py-4 my-3 no-more-items';
+    indicator.className = 'col-12 text-center py-4 my-3 no-more-items w-100';
     indicator.innerHTML = `
         <div class="text-muted">
             <i class="bi bi-check-circle"></i> 
@@ -1369,18 +1728,46 @@ function cleanupPlaceholders() {
 setInterval(cleanupPlaceholders, 5000);
 
 /**
+ * Function to force-clear all loading spinners after a timeout
+ * This ensures thumbnails don't get stuck with spinners indefinitely
+ */
+function forceRemoveLoadingSpinners() {
+    const spinners = document.querySelectorAll('.thumbnail-container .placeholder-content');
+    console.log(`Force removing ${spinners.length} loading spinners`);
+    
+    spinners.forEach(spinner => {
+        const container = spinner.closest('.thumbnail-container');
+        if (container) {
+            // Replace with error icon
+            container.innerHTML = `
+                <div class="d-flex justify-content-center align-items-center bg-light w-100 h-100" style="height: 150px;">
+                    <i class="bi bi-image text-secondary" style="font-size: 2rem; opacity: 0.5;"></i>
+                </div>`;
+        }
+    });
+}
+
+/**
  * Processes files sequentially with a delay between each for a smoother appearance
- * Respects loading pauses for better performance during modal viewing
+ * Uses server-side thumbnails for better performance
  */
 async function processFilesSequentially(files, gallery, page) {
+    console.log(`Processing ${files.length} files for page ${page}`);
+    
     // Get last modified dates and ensure they're sorted
     let filesWithDates = [...files]; // Create a copy to avoid modifying original array
     
     // Check if we need to fetch dates (old format) or if they're already there (new format)
     if (Array.isArray(filesWithDates) && filesWithDates.length > 0) {
         try {
+            // Check if date fields are present
+            const hasDateField = filesWithDates[0].hasOwnProperty('date');
+            const hasModifiedField = filesWithDates[0].hasOwnProperty('modified');
+            
+            console.log(`Files have date field: ${hasDateField}, modified field: ${hasModifiedField}`);
+            
             // If dates are missing, fetch them
-            if (!filesWithDates[0].date) {
+            if (!hasDateField && !hasModifiedField) {
                 console.log('Fetching file dates for sorting...');
                 filesWithDates = await Promise.all(filesWithDates.map(async fileObj => {
                     const url = `/uploads/${fileObj.filename}`;
@@ -1394,9 +1781,33 @@ async function processFilesSequentially(files, gallery, page) {
             console.log('Sorting files by date (newest first)...');
             filesWithDates.sort((a, b) => {
                 // Handle various date formats
-                const dateA = a.date instanceof Date ? a.date : new Date(a.date || a.modified || 0);
-                const dateB = b.date instanceof Date ? b.date : new Date(b.date || b.modified || 0);
+                let dateA, dateB;
+                
+                if (a.date) {
+                    dateA = a.date instanceof Date ? a.date : new Date(a.date);
+                } else if (a.modified) {
+                    dateA = new Date(a.modified);
+                } else {
+                    dateA = new Date(0); // Default to epoch if no date
+                }
+                
+                if (b.date) {
+                    dateB = b.date instanceof Date ? b.date : new Date(b.date);
+                } else if (b.modified) {
+                    dateB = new Date(b.modified);
+                } else {
+                    dateB = new Date(0); // Default to epoch if no date
+                }
+                
                 return dateB - dateA; // Descending order (newest first)
+            });
+            
+            // Log the first few dates for debugging
+            console.log('Sorted dates (first 3 files):');
+            filesWithDates.slice(0, 3).forEach((file, i) => {
+                const dateStr = file.date ? new Date(file.date).toISOString() : 
+                                file.modified ? new Date(file.modified).toISOString() : 'No date';
+                console.log(`  [${i}] ${file.filename}: ${dateStr}`);
             });
         } catch (error) {
             console.warn('Error processing file dates:', error);
@@ -1407,223 +1818,174 @@ async function processFilesSequentially(files, gallery, page) {
     // Create a document fragment for better performance
     const fragment = document.createDocumentFragment();
     
-    // Process each file with awareness of loading pauses
+    // Create cards for each file
     for (let i = 0; i < filesWithDates.length; i++) {
-        // If loading is paused, wait for it to resume
-        if (loadingPaused) {
-            // Create a promise that resolves when loading resumes
-            await new Promise(resolve => {
-                loadingQueue.push(() => {
-                    resolve(); // Resume processing when queue is processed
-                });
-            });
-        }
-        
         const fileObj = filesWithDates[i];
+        const {filename, type} = fileObj;
         
-        // Handle both old and new format
-        const filename = fileObj.filename;
-        const ext = filename.split('.').pop().toLowerCase();
-        const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
-        const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
-        const url = `/uploads/${filename}`;
-        
-        // Process the file based on type
-        const col = document.createElement('div');
-        col.className = 'col-3 mb-3 real-item';
-        col.setAttribute('data-filename', filename);
-        
-        if (isImage) {
-            try {
-                // Create a proper thumbnail container with loading spinner
-                const thumbnailHtml = `
-                    <div class="card h-100">
-                        <div class="thumbnail-container">
-                            <div class="thumbnail-loading">
-                                <div class="spinner-border spinner-border-sm text-primary" role="status">
-                                    <span class="visually-hidden">Loading...</span>
-                                </div>
-                            </div>
-                            <img class="thumbnail-img" alt="${filename}">
-                        </div>
-                    </div>`;
-                
-                col.innerHTML = thumbnailHtml;
-                
-                // Get the img element to set up load handling
-                const imgElement = col.querySelector('.thumbnail-img');
-                const loadingElement = col.querySelector('.thumbnail-loading');
-                
-                // Set up click handler
-                imgElement.onclick = () => showImageModal(url, filename, truncateFilename(filename, 30));
-                
-                // Check if thumbnail exists in cache
-                const cachedThumbnail = localStorage.getItem(`img_thumb_${filename}`);
-                
-                if (cachedThumbnail) {
-                    // Use cached thumbnail, but still show spinner until loaded
-                    imgElement.onload = function() {
-                        imgElement.classList.add('loaded');
-                        if (loadingElement) loadingElement.style.display = 'none';
-                    };
-                    
-                    imgElement.src = cachedThumbnail;
-                    
-                    // Handle case where image is already cached in browser
-                    if (imgElement.complete) {
-                        imgElement.classList.add('loaded');
-                        if (loadingElement) loadingElement.style.display = 'none';
-                    }
-                } else {
-                    // No cached thumbnail, generate one
-                    createImageThumbnail(url).then(thumbnail => {
-                        try {
-                            localStorage.setItem(`img_thumb_${filename}`, thumbnail);
-                        } catch (e) {
-                            if (e.name === 'QuotaExceededError') {
-                                clearOldThumbnails();
-                            }
-                        }
-                        
-                        // Set image source to the new thumbnail
-                        imgElement.onload = function() {
-                            imgElement.classList.add('loaded');
-                            if (loadingElement) loadingElement.style.display = 'none';
-                        };
-                        
-                        imgElement.src = thumbnail;
-                    }).catch(e => {
-                        console.warn('Error generating thumbnail:', e);
-                        // Fallback to original image
-                        imgElement.src = url;
-                        if (loadingElement) loadingElement.style.display = 'none';
-                    });
-                }
-                
-                // Add to fragment - this is the key fix
-                fragment.appendChild(col);
-            } catch (e) {
-                console.warn('Error handling image thumbnail:', e);
-                // Fallback for error cases - make sure to still add to fragment
-                col.innerHTML = `
-                    <div class="card h-100">
-                        <img src="${url}" class="card-img-top" loading="lazy" onclick="showImageModal('${url}')">
-                    </div>`;
-                fragment.appendChild(col);
-            }
-        } else if (isVideo) {
-            try {
-                // Create a thumbnail container with loading spinner
-                const thumbnailHtml = `
-                    <div class="card h-100">
-                        <div class="thumbnail-container">
-                            <div class="thumbnail-loading">
-                                <div class="spinner-border spinner-border-sm text-primary" role="status">
-                                    <span class="visually-hidden">Loading...</span>
-                                </div>
-                            </div>
-                            <img class="thumbnail-img" alt="${filename}">
-                            <div class="video-icon">
-                                <i class="bi bi-play-circle-fill"></i>
-                            </div>
-                            <div class="video-duration"></div>
-                        </div>
-                    </div>`;
-                
-                col.innerHTML = thumbnailHtml;
-                
-                // Get elements
-                const imgElement = col.querySelector('.thumbnail-img');
-                const loadingElement = col.querySelector('.thumbnail-loading');
-                const durationElement = col.querySelector('.video-duration');
-                
-                // Set up click handler
-                col.querySelector('.thumbnail-container').onclick = () => showVideoModal(url, filename, truncateFilename(filename, 30));
-                
-                // Check if thumbnail exists in cache
-                const cachedThumbnail = localStorage.getItem(`thumb_${filename}`);
-                const cachedDuration = localStorage.getItem(`duration_${filename}`);
-                
-                if (cachedThumbnail && cachedDuration) {
-                    // Use cached thumbnail and duration
-                    imgElement.onload = function() {
-                        imgElement.classList.add('loaded');
-                        if (loadingElement) loadingElement.style.display = 'none';
-                    };
-                    
-                    imgElement.src = cachedThumbnail;
-                    durationElement.textContent = cachedDuration;
-                    
-                    // Handle case where image is already cached in browser
-                    if (imgElement.complete) {
-                        imgElement.classList.add('loaded');
-                        if (loadingElement) loadingElement.style.display = 'none';
-                    }
-                } else {
-                    // Generate video thumbnail
-                    captureVideoFrame(url, function(thumbnail, duration) {
-                        try {
-                            localStorage.setItem(`thumb_${filename}`, thumbnail);
-                            localStorage.setItem(`duration_${filename}`, duration);
-                        } catch (e) {
-                            if (e.name === 'QuotaExceededError') {
-                                clearOldThumbnails();
-                            }
-                        }
-                        
-                        // Set image source to the new thumbnail
-                        imgElement.onload = function() {
-                            imgElement.classList.add('loaded');
-                            if (loadingElement) loadingElement.style.display = 'none';
-                        };
-                        
-                        imgElement.src = thumbnail;
-                        durationElement.textContent = duration;
-                    });
-                }
-                
-                // Add to fragment - this is the key fix
-                fragment.appendChild(col);
-            } catch (e) {
-                console.warn('Error handling video thumbnail:', e);
-                // Fallback for error cases - make sure to still add to fragment
-                col.innerHTML = `
-                    <div class="card h-100">
-                        <div class="position-relative">
-                            <div class="card-img-top bg-dark text-white d-flex align-items-center justify-content-center" style="height: 200px;">
-                                <i class="bi bi-play-circle-fill" style="font-size: 2rem;"></i>
-                            </div>
-                        </div>
-                    </div>`;
-                fragment.appendChild(col);
-            }
-        } else {
-            // Other file types (non-image, non-video)
-            const fileHtml = `
-                <div class="card h-100">
-                    <div class="card-body text-center">
-                        <i class="bi bi-file-earmark text-muted mb-2" style="font-size: 2rem;"></i>
-                        <div class="small text-muted mb-2 text-truncate" title="${filename}">${filename}</div>
-                        <a href="${url}" download class="btn btn-primary btn-sm">
-                            <i class="bi bi-download"></i> Download
-                        </a>
-                    </div>
-                </div>`;
+        try {
+            // Create a thumbnail container with loading spinner
+            const col = document.createElement('div');
+            col.className = 'col-3 col-md-3 col-lg-2 col-xl-1 mb-3';
+            col.dataset.filename = filename;
             
-            col.innerHTML = fileHtml;
+            const card = document.createElement('div');
+            card.className = 'card h-100';
+            
+            const thumbnailContainer = document.createElement('div');
+            thumbnailContainer.className = 'thumbnail-container';
+            
+            // Add loading spinner
+            const loadingSpinner = document.createElement('div');
+            loadingSpinner.className = 'placeholder-content';
+            loadingSpinner.innerHTML = '<div class="spinner-border text-primary" role="status" style="width: 2rem; height: 2rem;"></div>';
+            thumbnailContainer.appendChild(loadingSpinner);
+            
+            // Use server thumbnail URL
+            let thumbnailUrl;
+            if (type === 'video') {
+                const ext = filename.substring(filename.lastIndexOf('.'));
+                const baseName = filename.substring(0, filename.lastIndexOf('.'));
+                thumbnailUrl = `/thumbnails/${baseName}.jpg`;
+                
+                // For videos, we'll handle thumbnails differently
+                const fileUrl = `/uploads/${filename}`;
+                
+                // Add to fragment first to prevent layout shifts
+                card.appendChild(thumbnailContainer);
+                col.appendChild(card);
+                fragment.appendChild(col);
+                
+                // Generate video thumbnail separately to avoid blocking UI
+                setTimeout(() => {
+                    generateVideoThumbnail(fileUrl, filename, col);
+                }, 50);
+                
+                // Move to next file
+                continue;
+            } else {
+                thumbnailUrl = `/thumbnails/${filename}`;
+            }
+            
+            // Create and set up the image element
+            const imgElement = document.createElement('img');
+            imgElement.className = 'thumbnail-img card-img-top';
+            imgElement.alt = filename;
+            imgElement.setAttribute('data-filename', filename);
+            
+            // Set up click handler based on file type
+            if (type === 'image') {
+                thumbnailContainer.style.cursor = 'pointer';
+                thumbnailContainer.onclick = function() {
+                    showSingleImageModal(`/uploads/${filename}`, filename, truncateFilename(filename));
+                };
+            } else {
+                // For other files, just show download
+                thumbnailContainer.style.cursor = 'pointer';
+                thumbnailContainer.onclick = function() {
+                    window.open(`/uploads/${filename}`, '_blank');
+                };
+            }
+            
+            // Add a cache-busting parameter to ensure fresh thumbnails
+            const cacheBuster = Date.now();
+            
+            // Set up image loading
+            imgElement.onload = function() {
+                // Hide loading spinner and show image
+                loadingSpinner.style.display = 'none';
+                imgElement.classList.add('loaded');
+                
+                // Cache the thumbnail URL for faster loading next time
+                try {
+                    localStorage.setItem(`thumb_${filename}`, thumbnailUrl);
+                } catch (e) {
+                    // Handle quota exceeded errors
+                    console.warn('Could not cache thumbnail, localStorage quota exceeded:', e);
+                }
+            };
+            
+            imgElement.onerror = function() {
+                console.warn(`Error loading thumbnail for ${filename}, attempting to generate it`);
+                // If thumbnail loading fails, try to generate it
+                fetch(`/generate-thumbnail/${filename}`, { method: 'POST' })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            console.log(`Successfully generated thumbnail for ${filename}`);
+                            // Retry loading the new thumbnail with a cache buster
+                            const newThumbUrl = `${data.thumbnail}?t=${Date.now()}`;
+                            imgElement.src = newThumbUrl;
+                            
+                            // Save to localStorage for future loads
+                            try {
+                                localStorage.setItem(`thumb_${filename}`, data.thumbnail);
+                            } catch (e) {
+                                console.warn('Could not cache thumbnail URL:', e);
+                            }
+                        } else {
+                            // If generation fails, show a placeholder
+                            console.error(`Failed to generate thumbnail for ${filename}:`, data.message || 'Unknown error');
+                            loadingSpinner.style.display = 'none';
+                            imgElement.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIyNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+Tm8gUHJldmlldzwvdGV4dD48L3N2Zz4=';
+                            imgElement.classList.add('loaded');
+                        }
+                    })
+                    .catch(err => {
+                        console.error(`Error during thumbnail generation for ${filename}:`, err);
+                        // Show error placeholder
+                        loadingSpinner.style.display = 'none';
+                        imgElement.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjhkN2RhIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIyNCIgZmlsbD0iI2RjMzU0NSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+RXJyb3I8L3RleHQ+PC9zdmc+';
+                            imgElement.classList.add('loaded');
+                    });
+            };
+            
+            // Always add cache-busting to force a fresh load
+            imgElement.src = `${thumbnailUrl}?t=${cacheBuster}`;
+            thumbnailContainer.appendChild(imgElement);
+            
+            // First add the thumbnail container to the card
+            card.appendChild(thumbnailContainer);
+            
+            // Add the complete card to the column
+            col.appendChild(card);
+            
+            // Add to the document fragment
             fragment.appendChild(col);
+            
+        } catch (error) {
+            console.error(`Error processing ${filename}:`, error);
+            
+            // Create an error card as a fallback
+            const errorCol = document.createElement('div');
+            errorCol.className = 'col-3 col-md-3 col-lg-2 col-xl-1 mb-3';
+            errorCol.dataset.filename = filename;
+            
+            const errorCard = document.createElement('div');
+            errorCard.className = 'card h-100 border-danger';
+            errorCard.innerHTML = `
+                <div class="thumbnail-container">
+                    <div class="d-flex justify-content-center align-items-center bg-light w-100 h-100">
+                        <i class="bi bi-exclamation-triangle text-danger" style="font-size: 2rem;"></i>
+                    </div>
+                </div>
+            `;
+            
+            errorCol.appendChild(errorCard);
+            fragment.appendChild(errorCol);
         }
         
-        // Add a small delay between processing items, but only if not in modal
-        if (!isModalOpen) {
+        // Add a small delay between processing each file to avoid blocking the UI
+        if (i < filesWithDates.length - 1) {
             await new Promise(resolve => setTimeout(resolve, 50));
         }
     }
     
-    // After all files are processed, append the fragment to the gallery
+    // Add all items to the gallery at once
     gallery.appendChild(fragment);
     
-    return fragment;
+    // Clean up placeholders
+    cleanupPlaceholders();
 }
 
 // In the loadGallery function, add this to handle cleaning up ALL loading indicators
@@ -2022,3 +2384,308 @@ window.addEventListener('beforeunload', saveAppState);
 
 // Call these functions when needed
 document.addEventListener('DOMContentLoaded', restoreAppState);
+
+// Add these helper functions for loading indicators
+function showLoadingSpinner() {
+    const spinner = document.getElementById('loadingSpinner');
+    if (spinner) {
+        spinner.classList.remove('d-none');
+    }
+}
+
+function hideLoadingSpinner() {
+    const spinner = document.getElementById('loadingSpinner');
+    if (spinner) {
+        spinner.classList.add('d-none');
+    }
+}
+
+function createLoadingIndicator() {
+    const gallery = document.getElementById('gallery');
+    
+    // Check if a loading indicator already exists
+    if (gallery.querySelector('.scroll-loading-indicator')) {
+        return;
+    }
+    
+    const loadingIndicator = document.createElement('div');
+    loadingIndicator.className = 'col-12 scroll-loading-indicator text-center mb-4';
+    loadingIndicator.innerHTML = `
+        <div class="d-flex justify-content-center align-items-center">
+            <div class="spinner-border text-primary me-2" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <div>Loading more items...</div>
+        </div>
+    `;
+    
+    gallery.appendChild(loadingIndicator);
+}
+
+function removeLoadingIndicator() {
+    const gallery = document.getElementById('gallery');
+    if (gallery) {
+        const indicators = gallery.querySelectorAll('.scroll-loading-indicator, .gallery-loading-indicator');
+        indicators.forEach(indicator => {
+            indicator.classList.add('fade-out');
+            setTimeout(() => {
+                if (indicator.parentNode) {
+                    indicator.remove();
+                }
+            }, 300);
+        });
+    }
+}
+
+/**
+ * Helper function to test infinite scroll functionality
+ * This will only be visible during debugging
+ */
+function addDebugTools() {
+    // Create debug controls container if it doesn't exist
+    if (!document.getElementById('debugControls')) {
+        const debugContainer = document.createElement('div');
+        debugContainer.id = 'debugControls';
+        debugContainer.className = 'position-fixed bottom-0 start-0 m-3 p-3 bg-light rounded shadow';
+        debugContainer.style.zIndex = '1050';
+        debugContainer.innerHTML = `
+            <h6>Debug Controls</h6>
+            <div class="mb-2">
+                <button id="loadNextPageBtn" class="btn btn-sm btn-primary">
+                    Load Next Page
+                </button>
+                <button id="checkScrollStateBtn" class="btn btn-sm btn-info ms-2">
+                    Check Scroll State
+                </button>
+            </div>
+            <div class="small text-muted">
+                <div>Current page: <span id="debugCurrentPage">0</span></div>
+                <div>Filter: <span id="debugCurrentFilter">none</span></div>
+                <div>Has more: <span id="debugHasMore">unknown</span></div>
+                <div>Loading: <span id="debugIsLoading">false</span></div>
+            </div>
+        `;
+        document.body.appendChild(debugContainer);
+        
+        // Add event listeners
+        document.getElementById('loadNextPageBtn').addEventListener('click', function() {
+            console.log(`Debug: Manually loading next page (${currentPage + 1})`);
+            loadGallery(currentFilter, currentPage + 1);
+        });
+        
+        document.getElementById('checkScrollStateBtn').addEventListener('click', function() {
+            const scrollPosition = window.innerHeight + window.scrollY;
+            const bodyHeight = document.body.offsetHeight;
+            const distanceToBottom = bodyHeight - scrollPosition;
+            
+            console.log(`
+Debug: Scroll State
+-------------------
+Current page: ${currentPage}
+Current filter: ${currentFilter}
+Has more items: ${hasMoreItems}
+isLoading: ${isLoading}
+isLoadingGallery: ${isLoadingGallery}
+isModalOpen: ${isModalOpen}
+Window height: ${window.innerHeight}px
+Current scroll: ${window.scrollY}px
+Scroll position: ${scrollPosition}px
+Body height: ${bodyHeight}px
+Distance to bottom: ${distanceToBottom}px
+Scroll threshold: 500px
+Will load more: ${distanceToBottom <= 500 && !isLoading && !isLoadingGallery && !isModalOpen && hasMoreItems}
+            `);
+            
+            // Update debug display
+            updateDebugDisplay();
+        });
+    }
+    
+    // Update the debug display with current values
+    updateDebugDisplay();
+}
+
+/**
+ * Updates the debug display with current state values
+ */
+function updateDebugDisplay() {
+    const debugCurrentPage = document.getElementById('debugCurrentPage');
+    const debugCurrentFilter = document.getElementById('debugCurrentFilter');
+    const debugHasMore = document.getElementById('debugHasMore');
+    const debugIsLoading = document.getElementById('debugIsLoading');
+    
+    if (debugCurrentPage) debugCurrentPage.textContent = currentPage;
+    if (debugCurrentFilter) debugCurrentFilter.textContent = currentFilter;
+    if (debugHasMore) debugHasMore.textContent = hasMoreItems;
+    if (debugIsLoading) debugIsLoading.textContent = isLoading || isLoadingGallery;
+}
+
+/**
+ * Sets up all modal events to properly track open/closed state
+ * This function ensures that infinite scrolling works correctly
+ */
+function setupModalEvents() {
+    // Get all modals in the document
+    const modals = document.querySelectorAll('.modal');
+    
+    modals.forEach(modal => {
+        // Add shown event listener
+        modal.addEventListener('shown.bs.modal', function() {
+            // Set modal open flag to prevent infinite scrolling
+            isModalOpen = true;
+            console.log(`Modal #${modal.id} opened, scroll loading paused`);
+            
+            // Mark carousel items as loading
+            const items = this.querySelectorAll('.carousel-item');
+            items.forEach(item => {
+                item.classList.add('loading');
+                
+                // Add load event handlers for images
+                const img = item.querySelector('img');
+                if (img) {
+                    img.onload = function() {
+                        item.classList.remove('loading');
+                    };
+                    img.onerror = function() {
+                        item.classList.remove('loading');
+                        item.classList.add('load-error');
+                        item.innerHTML += `<div class="error-message">Failed to load image</div>`;
+                    };
+                }
+                
+                // Add load event handlers for videos
+                const video = item.querySelector('video');
+                if (video) {
+                    video.onloadeddata = function() {
+                        item.classList.remove('loading');
+                    };
+                    video.onerror = function() {
+                        item.classList.remove('loading');
+                        item.classList.add('load-error');
+                        item.innerHTML += `<div class="error-message">Failed to load video</div>`;
+                    };
+                }
+            });
+            
+            // Update debug display if available
+            if (typeof updateDebugDisplay === 'function') {
+                updateDebugDisplay();
+            }
+        });
+        
+        // Add hidden event listener
+        modal.addEventListener('hidden.bs.modal', function() {
+            // Reset modal open flag to allow infinite scrolling again
+            isModalOpen = false;
+            console.log(`Modal #${modal.id} closed, scroll loading resumed`);
+            
+            // Update debug display if available
+            if (typeof updateDebugDisplay === 'function') {
+                updateDebugDisplay();
+            }
+        });
+    });
+    
+    console.log(`Modal events set up for ${modals.length} modals`);
+}
+
+/**
+ * Removes the "end of content" message
+ */
+function removeEndOfContentMessage() {
+    const gallery = document.getElementById('gallery');
+    if (!gallery) return;
+    
+    const endMessage = gallery.querySelector('.no-more-items');
+    if (endMessage) {
+        endMessage.remove();
+    }
+}
+
+/**
+ * Check if thumbnail exists and generate one if needed
+ * @param {string} filename - Filename to check/generate thumbnail for
+ * @param {string} [url] - URL of the file (unused by server, but kept for backward compatibility)
+ * @returns {Promise<string>} - Promise resolving to thumbnail URL
+ */
+function checkAndGenerateThumbnail(filename, url = null) {
+    return new Promise((resolve, reject) => {
+        try {
+            console.log(`checkAndGenerateThumbnail called for ${filename}`);
+            
+            // Get just the filename part if it contains a path
+            const filenameOnly = filename.includes('/') ? 
+                filename.substring(filename.lastIndexOf('/') + 1) : 
+                filename;
+                
+            // Determine thumbnail path based on file type
+            const ext = filenameOnly.substring(filenameOnly.lastIndexOf('.')).toLowerCase();
+            const baseName = filenameOnly.substring(0, filenameOnly.lastIndexOf('.'));
+            let thumbnailPath = `/thumbnails/${baseName}.jpg`;
+            
+            console.log(`Thumbnail path determined for ${filenameOnly}: ${thumbnailPath}`);
+            
+            // Add timestamp for cache busting
+            const cacheBuster = Date.now();
+            
+            // First check if the thumbnail already exists
+            fetch(`${thumbnailPath}?t=${cacheBuster}`, { method: 'HEAD' })
+                .then(response => {
+                    if (response.ok) {
+                        console.log(`Thumbnail exists for ${filenameOnly} at ${thumbnailPath}`);
+                        
+                        // Update the thumbnail in the gallery with the existing path
+                        updateThumbnailInGallery(filename, thumbnailPath);
+                        
+                        // Resolve with the existing thumbnail URL
+                        resolve(`${thumbnailPath}?t=${cacheBuster}`);
+                    } else {
+                        console.log(`Thumbnail does not exist for ${filenameOnly}, generating...`);
+                        
+                        // Generate the thumbnail since it doesn't exist
+                        fetch(`/generate-thumbnail/${filenameOnly}`, {
+                            method: 'POST'
+                        })
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.success) {
+                                console.log(`Thumbnail generated for ${filenameOnly}:`, data.thumbnail);
+                                
+                                // Update the thumbnail in the gallery
+                                updateThumbnailInGallery(filename, data.thumbnail);
+                                
+                                // Force thumbnails to reload on next page load
+                                localStorage.setItem('forceReloadThumbnails', 'true');
+                                localStorage.setItem('lastUpdatedThumbnail', filename);
+                                
+                                // Clear any cached thumbnails for this file
+                                try {
+                                    localStorage.removeItem(`thumb_${filename}`);
+                                    localStorage.removeItem(`img_thumb_${filename}`);
+                                } catch (e) {
+                                    console.warn(`Error clearing cached thumbnail: ${e.message}`);
+                                }
+                                
+                                // Resolve with the new thumbnail URL
+                                resolve(`${data.thumbnail}?t=${cacheBuster}`);
+                            } else {
+                                console.error(`Failed to generate thumbnail for ${filenameOnly}:`, data.error);
+                                reject(new Error(`Failed to generate thumbnail: ${data.error}`));
+                            }
+                        })
+                        .catch(err => {
+                            console.error(`Error generating thumbnail for ${filenameOnly}:`, err);
+                            reject(err);
+                        });
+                    }
+                })
+                .catch(err => {
+                    console.error(`Error checking thumbnail existence for ${filenameOnly}:`, err);
+                    reject(err);
+                });
+        } catch (err) {
+            console.error(`Error in checkAndGenerateThumbnail for ${filename}:`, err);
+            reject(err);
+        }
+    });
+}
