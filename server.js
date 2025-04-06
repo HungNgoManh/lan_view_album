@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs-extra');
 const sharp = require('sharp');
 const cors = require('cors');
+const { spawn } = require('child_process');
 
 const app = express();
 const PORT = 3000;
@@ -19,6 +20,42 @@ fs.ensureDirSync(THUMB_DIR);
 app.use(cors());
 app.use(express.static('public'));
 app.use(express.json());
+
+// Function to generate video thumbnail using ffmpeg
+async function generateVideoThumbnail(videoPath, outputPath) {
+    return new Promise((resolve, reject) => {
+        // Create ffmpeg command to extract a frame at 1 second
+        const ffmpeg = spawn('ffmpeg', [
+            '-i', videoPath,             // Input file
+            '-ss', '00:00:01',           // Seek to 1 second
+            '-frames:v', '1',            // Extract 1 frame
+            '-q:v', '2',                 // High quality
+            '-vf', 'scale=300:-1',       // Resize to 300px width, keep aspect ratio
+            '-y',                        // Overwrite if exists
+            outputPath                   // Output file
+        ]);
+
+        // Handle process events
+        ffmpeg.on('close', (code) => {
+            if (code === 0) {
+                console.log(`Generated thumbnail for ${path.basename(videoPath)}`);
+                resolve(true);
+            } else {
+                console.error(`FFmpeg process exited with code ${code}`);
+                reject(new Error(`FFmpeg process exited with code ${code}`));
+            }
+        });
+
+        ffmpeg.stderr.on('data', (data) => {
+            console.log(`FFmpeg: ${data}`);
+        });
+
+        ffmpeg.on('error', (err) => {
+            console.error('FFmpeg failed:', err);
+            reject(err);
+        });
+    });
+}
 
 // Configure multer for disk storage
 const storage = multer.diskStorage({
@@ -48,17 +85,59 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 
         const ext = path.extname(originalname).toLowerCase();
 
-        // Only generate thumbnails for images
+        // Generate thumbnails based on file type
         if (['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) {
+            // Handle image thumbnails
             const thumbPath = path.join(THUMB_DIR, originalname);
             await sharp(filePath)
                 .resize({ width: 300 })
                 .toFile(thumbPath);
+        } else if (['.mp4', '.webm', '.mov'].includes(ext)) {
+            // Handle video thumbnails
+            const thumbPath = path.join(THUMB_DIR, `${originalname}.jpg`);
+            try {
+                await generateVideoThumbnail(filePath, thumbPath);
+                console.log(`Video thumbnail generated for ${originalname}`);
+            } catch (thumbErr) {
+                console.warn(`Could not generate video thumbnail: ${thumbErr.message}`);
+                // Continue even if thumbnail generation fails
+            }
         }
 
         res.json({ success: true, filename: originalname });
     } catch (err) {
         console.error('❌ Upload error:', err);
+        res.status(500).json({ success: false, error: err.toString() });
+    }
+});
+
+// Endpoint to generate video thumbnail on-demand
+app.get('/generate-thumbnail/:filename', async (req, res) => {
+    try {
+        const filename = req.params.filename;
+        const videoPath = path.join(UPLOAD_DIR, filename);
+        const thumbPath = path.join(THUMB_DIR, `${filename}.jpg`);
+        
+        // Check if file exists
+        if (!await fs.pathExists(videoPath)) {
+            return res.status(404).json({ success: false, message: 'Video file not found' });
+        }
+        
+        // Check if thumbnail already exists
+        if (await fs.pathExists(thumbPath)) {
+            return res.json({ success: true, message: 'Thumbnail already exists', path: `/thumbnails/${filename}.jpg` });
+        }
+        
+        // Generate thumbnail
+        await generateVideoThumbnail(videoPath, thumbPath);
+        
+        res.json({ 
+            success: true, 
+            message: 'Thumbnail generated successfully',
+            path: `/thumbnails/${filename}.jpg`
+        });
+    } catch (err) {
+        console.error('❌ Thumbnail generation error:', err);
         res.status(500).json({ success: false, error: err.toString() });
     }
 });

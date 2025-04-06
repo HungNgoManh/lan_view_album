@@ -188,7 +188,12 @@ window.addEventListener('scroll', handleScroll);
 
 // Update the loadGallery function to handle URL parameters
 function loadGallery(filter = 'all', page = 1) {
-    if (isLoading && page > 1) return;
+    // Prevent duplicate loading requests
+    if (isLoading) {
+        console.log(`Skipping duplicate loading request (filter: ${filter}, page: ${page})`);
+        return;
+    }
+    
     isLoading = true;
 
     // Update current filter
@@ -203,8 +208,9 @@ function loadGallery(filter = 'all', page = 1) {
     }
 
     // For first page load, replace content with placeholders
-        const gallery = document.getElementById('gallery');
+    const gallery = document.getElementById('gallery');
     if (gallery && page === 1) {
+        // Clear existing content completely before adding new content
         gallery.innerHTML = '';
         
         // Add placeholders for initial load
@@ -366,14 +372,17 @@ function loadGallery(filter = 'all', page = 1) {
  * @returns {Promise} - A promise that resolves when processing is complete
  */
 function processGalleryData(data, gallery, page, filter) {
-    // Remove placeholders
-    const placeholders = gallery.querySelectorAll('.placeholder-thumbnail');
-    placeholders.forEach(placeholder => placeholder.remove());
+    // Clean up: Remove all placeholders first
+    const allPlaceholders = gallery.querySelectorAll('.placeholder-thumbnail');
+    allPlaceholders.forEach(placeholder => placeholder.remove());
     
     // Check if there are no files to display
     if (!data.files || data.files.length === 0) {
-        // Show empty state message
+        // If this is page 1, show empty state message
         if (page === 1) {
+            // Clear any existing content first to prevent duplicates
+            gallery.innerHTML = '';
+            
             let message = 'No files found';
             let icon = 'bi-folder-x';
             
@@ -724,188 +733,124 @@ function showSingleImageModal(selectedUrl, filename, truncatedFilename) {
  * Shows the video modal with ONLY the clicked video
  * Pauses background loading for better performance
  */
-function showVideoModal(selectedUrl, filename, truncatedFilename) {
-    // Pause background loading operations
-    pauseBackgroundLoading();
-    isModalOpen = true;
+function showVideoModal(url, filename, title = '') {
+    // Trigger server-side thumbnail generation if needed
+    getVideoThumbnail(filename).catch(err => {
+        console.warn('Error generating thumbnail on video view:', err);
+    });
     
+    // Get the modal
     const videoModal = document.getElementById('videoModal');
-        const carouselVideos = document.getElementById('carouselVideos');
-        const videoModalTitle = document.querySelector('#videoModal .modal-title');
-        
-    if (!carouselVideos || !videoModal) {
-            console.error('Video modal elements not found');
-            return;
-        }
-        
-    // Disable any carousel functionality
-    const prevButton = videoModal.querySelector('.carousel-control-prev');
-    const nextButton = videoModal.querySelector('.carousel-control-next');
-    if (prevButton) prevButton.style.display = 'none';
-    if (nextButton) nextButton.style.display = 'none';
+    if (!videoModal) return;
     
-    // Clear existing content
-    carouselVideos.innerHTML = '';
+    // Set loading state
+    isModalOpen = true;
+    loadingPaused = true;
     
-    // Set modal title
-        if (videoModalTitle) {
-        videoModalTitle.textContent = truncatedFilename;
-        videoModalTitle.title = filename;
+    // Set the modal title
+    const modalTitle = videoModal.querySelector('.modal-title');
+    if (modalTitle) {
+        modalTitle.textContent = title || filename || 'View Video';
     }
+
+    // Clear previous video
+    const videoContainer = videoModal.querySelector('.video-container');
+    videoContainer.innerHTML = '';
     
-    // Update buttons
-    updateModalButtons('videoModal', filename);
+    // Create a new video element
+    const video = document.createElement('video');
+    video.src = url;
+    video.controls = true;
+    video.autoplay = true;
+    video.className = 'w-100 h-auto';
+    videoContainer.appendChild(video);
     
-    // Create video container with loader
-    const videoContainer = document.createElement('div');
-    videoContainer.className = 'carousel-item active';
-    videoContainer.innerHTML = `
-        <div class="position-relative" style="min-height: 200px;">
-            <div class="position-absolute top-50 start-50 translate-middle loader-spinner">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-            </div>
+    // Add loading indicator
+    const loadingIndicator = document.createElement('div');
+    loadingIndicator.className = 'position-absolute top-50 start-50 translate-middle';
+    loadingIndicator.innerHTML = `
+        <div class="spinner-border text-light" role="status">
+            <span class="visually-hidden">Loading...</span>
         </div>
     `;
+    videoContainer.appendChild(loadingIndicator);
     
-    // Add container first
-    carouselVideos.appendChild(videoContainer);
-    
-    // Show the modal immediately
-    const modalInstance = new bootstrap.Modal(videoModal);
-    modalInstance.show();
-    
-    // Create video element
-        const video = document.createElement('video');
-        video.className = 'd-block w-100';
-        video.controls = true;
-        video.autoplay = true;
-    video.playsInline = true;
-    video.muted = false;
-    
-    // Add load event handlers
+    // Handle video loading events
     video.onloadeddata = function() {
-        console.log(`Video loaded successfully: ${selectedUrl}`);
-        const spinner = videoContainer.querySelector('.loader-spinner');
-        if (spinner) spinner.remove();
+        loadingIndicator.remove();
     };
     
-    video.onerror = function(e) {
-        console.error(`Failed to load video: ${selectedUrl}`, e);
-        
+    video.onerror = function() {
+        loadingIndicator.remove();
         videoContainer.innerHTML = `
-            <div class="text-center p-5">
-                <div class="text-danger mb-3">
-                    <i class="bi bi-exclamation-triangle-fill" style="font-size: 3rem;"></i>
-                </div>
-                <h5>Error loading video</h5>
-                <p class="text-muted">${selectedUrl}</p>
-                <button class="btn btn-sm btn-outline-primary retry-button">
-                    <i class="bi bi-arrow-clockwise"></i> Retry
-                </button>
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle"></i>
+                Error loading video
             </div>
         `;
-        
-        // Add retry button handler
-        const retryButton = videoContainer.querySelector('.retry-button');
-        if (retryButton) {
-            retryButton.addEventListener('click', function() {
-                showVideoModal(selectedUrl, filename, truncatedFilename);
-            });
-        }
     };
     
-    // Add a timeout for very slow connections
-    const loadTimeout = setTimeout(() => {
-        if (!video.readyState) {
-            console.warn(`Video load timeout: ${selectedUrl}`);
-            video.src = ''; // Cancel the current load
-            
-            // Show error with retry option
-            videoContainer.innerHTML = `
-                <div class="text-center p-5">
-                    <div class="text-warning mb-3">
-                        <i class="bi bi-clock-history" style="font-size: 3rem;"></i>
-                    </div>
-                    <h5>Video is taking too long to load</h5>
-                    <p class="text-muted">The server might be busy or the video may be too large</p>
-                    <button class="btn btn-sm btn-outline-primary retry-button">
-                        <i class="bi bi-arrow-clockwise"></i> Retry
-                    </button>
-                </div>
-            `;
-            
-            // Add retry button handler
-            const retryButton = videoContainer.querySelector('.retry-button');
-            if (retryButton) {
-                retryButton.addEventListener('click', function() {
-                    showVideoModal(selectedUrl, filename, truncatedFilename);
-                });
+    // Show the modal
+    const modal = new bootstrap.Modal(videoModal);
+    modal.show();
+    
+    // Handle modal close
+    videoModal.addEventListener('hidden.bs.modal', function () {
+        // Stop the video when modal is closed
+        videoContainer.innerHTML = '';
+        
+        // Reset loading state
+        isModalOpen = false;
+        loadingPaused = false;
+        
+        // Process any queued loading operations
+        if (loadingQueue.length > 0) {
+            console.log(`Processing ${loadingQueue.length} queued loading operations`);
+            while (loadingQueue.length > 0) {
+                const operation = loadingQueue.shift();
+                operation();
             }
         }
-    }, 20000); // 20 seconds timeout for videos
-    
-    // Check if video URL is valid
-    fetch(selectedUrl, { method: 'HEAD' })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
-            // URL is valid, proceed with loading
-            video.src = selectedUrl;
-            
-            // Add to container after verification
-            videoContainer.querySelector('.position-relative').appendChild(video);
-            
-            // Clear timeout if successful
-            clearTimeout(loadTimeout);
-        })
-        .catch(error => {
-            console.error(`Error checking video URL: ${error}`);
-            
-            // Show error state
-            videoContainer.innerHTML = `
-                <div class="text-center p-5">
-                    <div class="text-danger mb-3">
-                        <i class="bi bi-exclamation-triangle-fill" style="font-size: 3rem;"></i>
-                    </div>
-                    <h5>Error accessing video</h5>
-                    <p class="text-muted">Could not access: ${selectedUrl}</p>
-                    <p>Error: ${error.message}</p>
-                    <button class="btn btn-sm btn-outline-primary retry-button">
-                        <i class="bi bi-arrow-clockwise"></i> Retry
-                    </button>
-                </div>
-            `;
-            
-            // Add retry button handler
-            const retryButton = videoContainer.querySelector('.retry-button');
-            if (retryButton) {
-                retryButton.addEventListener('click', function() {
-                    showVideoModal(selectedUrl, filename, truncatedFilename);
-                });
-            }
-            
-            // Clear timeout
-            clearTimeout(loadTimeout);
-        });
-
-    // Add handler for modal close
-    videoModal.addEventListener('hidden.bs.modal', function onModalClose() {
-        isModalOpen = false;
-        
-        // Resume background loading after a short delay
-        setTimeout(resumeBackgroundLoading, 300);
-        
-        // Remove this specific event listener to avoid duplicates
-        videoModal.removeEventListener('hidden.bs.modal', onModalClose);
-    });
+    }, { once: true });
 }
 
-// Add this to your DOMContentLoaded event handler
+// Add this flag to track if initialization has been done
+let appInitialized = false;
+
+// Main initialization function
 document.addEventListener('DOMContentLoaded', function() {
+    // Prevent double initialization
+    if (appInitialized) {
+        console.log('App already initialized, skipping duplicate initialization');
+        return;
+    }
+    
+    console.log('Initializing app for the first time');
+    appInitialized = true;
+    
+    // Show/hide filter tabs based on active tab
+    const filterContainer = document.querySelector('.filter-container');
+    const viewTab = document.getElementById('view-tab');
+    const uploadTab = document.getElementById('upload-tab');
+    
+    if (filterContainer && viewTab && uploadTab) {
+        // Show filter tabs when View Files tab is active, hide otherwise
+        viewTab.addEventListener('shown.bs.tab', function() {
+            filterContainer.style.display = 'flex';
+        });
+        
+        uploadTab.addEventListener('shown.bs.tab', function() {
+            filterContainer.style.display = 'none';
+        });
+        
+        // Set initial state
+        if (viewTab.classList.contains('active')) {
+            filterContainer.style.display = 'flex';
+        } else {
+            filterContainer.style.display = 'none';
+        }
+    }
+    
     // Clear any existing event handlers from filter buttons
     const filterButtons = document.querySelectorAll('.btn-filter');
     filterButtons.forEach(button => {
@@ -938,78 +883,60 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Load gallery with filter from URL on page load
-    const filter = getUrlParameter('filter') || 'all';
-    loadGallery(filter, 1);
+    // Clear any existing gallery content
+    const gallery = document.getElementById('gallery');
+    if (gallery) {
+        gallery.innerHTML = '';
+    }
+
+    // Use URL parameter first, then saved state
+    const urlFilter = getUrlParameter('filter');
+    const savedState = localStorage.getItem('appState');
+    let initialFilter = 'all';
+
+    if (urlFilter) {
+        initialFilter = urlFilter;
+    } else if (savedState) {
+        try {
+            const state = JSON.parse(savedState);
+            initialFilter = state.currentFilter || 'all';
+        } catch (e) {
+            console.warn('Could not parse saved state', e);
+        }
+    }
+
+    // Update active state
+    updateFilterButtonState(initialFilter);
     
-    // Ensure the correct filter button is active
-    updateFilterButtonState(filter);
+    // Load gallery only once
+    console.log(`Initial load with filter: ${initialFilter}`);
+    loadGallery(initialFilter, 1);
     
     // Add Back to Top button
     addBackToTopButton();
     
-    // Ensure scroll listener is attached
-    window.removeEventListener('scroll', handleScroll); // Remove first to avoid duplicates
+    // Ensure scroll listener is attached only once
+    window.removeEventListener('scroll', handleScroll);
     window.addEventListener('scroll', handleScroll);
     
-    // Add this to your DOMContentLoaded event handler
-    document.addEventListener('click', function(event) {
-        // Check if click was on a loading indicator or its close button
-        if (event.target.closest('.gallery-loading-indicator') || 
-            event.target.closest('.scroll-loading-indicator')) {
-            const indicator = event.target.closest('.gallery-loading-indicator') || 
-                              event.target.closest('.scroll-loading-indicator');
-            indicator.remove();
-        }
-    });
+    // Add click handler for loading indicators
+    document.removeEventListener('click', handleLoadingIndicatorClick);
+    document.addEventListener('click', handleLoadingIndicatorClick);
 
-    // Add this to your DOMContentLoaded event handler
+    // Add scroll direction detection
+    window.removeEventListener('scroll', handleScrollDirection);
     window.addEventListener('scroll', handleScrollDirection);
-
-    // Remove debug buttons if they exist
-    const loadMoreDebugBtn = document.getElementById('loadMoreDebug');
-    if (loadMoreDebugBtn) loadMoreDebugBtn.remove();
-    
-    const cleanupBtn = document.getElementById('cleanupPlaceholdersBtn');
-    if (cleanupBtn) cleanupBtn.remove();
-
-    // Add event handlers for image/video loading in modals
-    document.querySelectorAll('#imageModal, #videoModal').forEach(modal => {
-        modal.addEventListener('shown.bs.modal', function() {
-            // Mark carousel items as loading
-            const items = this.querySelectorAll('.carousel-item');
-            items.forEach(item => {
-                item.classList.add('loading');
-                
-                // Add load event handlers for images
-                const img = item.querySelector('img');
-                if (img) {
-                    img.onload = function() {
-                        item.classList.remove('loading');
-                    };
-                    img.onerror = function() {
-                        item.classList.remove('loading');
-                        item.classList.add('load-error');
-                        item.innerHTML += `<div class="error-message">Failed to load image</div>`;
-                    };
-                }
-                
-                // Add load event handlers for videos
-                const video = item.querySelector('video');
-            if (video) {
-                    video.onloadeddata = function() {
-                        item.classList.remove('loading');
-                    };
-                    video.onerror = function() {
-                        item.classList.remove('loading');
-                        item.classList.add('load-error');
-                        item.innerHTML += `<div class="error-message">Failed to load video</div>`;
-                    };
-                }
-            });
-        });
-    });
 });
+
+// Add this function to handle loading indicator clicks
+function handleLoadingIndicatorClick(event) {
+    if (event.target.closest('.gallery-loading-indicator') || 
+        event.target.closest('.scroll-loading-indicator')) {
+        const indicator = event.target.closest('.gallery-loading-indicator') || 
+                         event.target.closest('.scroll-loading-indicator');
+        indicator.remove();
+    }
+}
 
 function captureVideoFrame(url, callback) {
     const video = document.createElement('video');
@@ -1191,9 +1118,6 @@ function generateVideoThumbnail(url, filename, containerElement) {
                     <span class="position-absolute bottom-0 end-0 badge bg-dark m-2">
                         ${duration}
                     </span>
-                    <div class="position-absolute" style="top: 0; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; align-items: center; pointer-events: none;">
-                        <i class="bi bi-play-circle-fill text-white" style="font-size: 2rem; opacity: 0.8;"></i>
-                    </div>
                 </div>
             </div>`;
         col.querySelector('img').addEventListener('click', function() {
@@ -1407,6 +1331,27 @@ async function processFilesSequentially(files, gallery, page) {
     // Create a document fragment for better performance
     const fragment = document.createDocumentFragment();
     
+    // Keep track of processed filenames to prevent duplicates
+    const processedFilenames = new Set();
+    
+    // Check for existing files in the gallery (to prevent duplicates on refresh)
+    if (page === 1) {
+        // If this is page 1, we want to clear any existing items to prevent duplicates
+        const existingItems = gallery.querySelectorAll('.real-item');
+        existingItems.forEach(item => {
+            item.remove();
+        });
+    } else {
+        // For subsequent pages, track what's already in the gallery
+        const existingItems = gallery.querySelectorAll('.real-item');
+        existingItems.forEach(item => {
+            const filename = item.getAttribute('data-filename');
+            if (filename) {
+                processedFilenames.add(filename);
+            }
+        });
+    }
+    
     // Process each file with awareness of loading pauses
     for (let i = 0; i < filesWithDates.length; i++) {
         // If loading is paused, wait for it to resume
@@ -1423,6 +1368,16 @@ async function processFilesSequentially(files, gallery, page) {
         
         // Handle both old and new format
         const filename = fileObj.filename;
+        
+        // Skip if this file has already been processed
+        if (processedFilenames.has(filename)) {
+            console.log(`Skipping duplicate file: ${filename}`);
+            continue;
+        }
+        
+        // Mark this file as processed
+        processedFilenames.add(filename);
+        
         const ext = filename.split('.').pop().toLowerCase();
         const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
         const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
@@ -1523,10 +1478,7 @@ async function processFilesSequentially(files, gallery, page) {
                                 </div>
                             </div>
                             <img class="thumbnail-img" alt="${filename}">
-                            <div class="video-icon">
-                                <i class="bi bi-play-circle-fill"></i>
-                            </div>
-                            <div class="video-duration"></div>
+                            <div class="video-duration position-absolute bottom-0 end-0 badge bg-dark m-2"></div>
                         </div>
                     </div>`;
                 
@@ -1540,46 +1492,78 @@ async function processFilesSequentially(files, gallery, page) {
                 // Set up click handler
                 col.querySelector('.thumbnail-container').onclick = () => showVideoModal(url, filename, truncateFilename(filename, 30));
                 
-                // Check if thumbnail exists in cache
-                const cachedThumbnail = localStorage.getItem(`thumb_${filename}`);
-                const cachedDuration = localStorage.getItem(`duration_${filename}`);
+                // Try to get server-side thumbnail first
+                const serverThumbnail = await getVideoThumbnail(filename);
                 
-                if (cachedThumbnail && cachedDuration) {
-                    // Use cached thumbnail and duration
+                if (serverThumbnail) {
+                    // Use server-side thumbnail
                     imgElement.onload = function() {
                         imgElement.classList.add('loaded');
                         if (loadingElement) loadingElement.style.display = 'none';
                     };
                     
-                    imgElement.src = cachedThumbnail;
-                    durationElement.textContent = cachedDuration;
+                    imgElement.src = serverThumbnail;
                     
-                    // Handle case where image is already cached in browser
-                    if (imgElement.complete) {
-                        imgElement.classList.add('loaded');
-                        if (loadingElement) loadingElement.style.display = 'none';
-                    }
-                } else {
-                    // Generate video thumbnail
-                    captureVideoFrame(url, function(thumbnail, duration) {
-                        try {
-                            localStorage.setItem(`thumb_${filename}`, thumbnail);
-                            localStorage.setItem(`duration_${filename}`, duration);
-                        } catch (e) {
-                            if (e.name === 'QuotaExceededError') {
-                                clearOldThumbnails();
-                            }
-                        }
+                    // Get duration (we'll still need to get this from the video)
+                    const video = document.createElement('video');
+                    video.src = url;
+                    video.preload = 'metadata';
+                    video.onloadedmetadata = () => {
+                        const duration = Math.round(video.duration);
+                        const minutes = Math.floor(duration / 60);
+                        const seconds = duration % 60;
+                        const durationText = `${minutes}:${seconds.toString().padStart(2, '0')}`;
                         
-                        // Set image source to the new thumbnail
+                        if (durationElement) {
+                            durationElement.textContent = durationText;
+                        }
+                    };
+                    video.load();
+                } else {
+                    // Fall back to client-side thumbnail generation
+                    // Check localStorage cache first
+                    const cachedThumbnail = localStorage.getItem(`thumb_${filename}`);
+                    const cachedDuration = localStorage.getItem(`duration_${filename}`);
+                    
+                    if (cachedThumbnail) {
+                        // Use cached thumbnail
                         imgElement.onload = function() {
                             imgElement.classList.add('loaded');
                             if (loadingElement) loadingElement.style.display = 'none';
                         };
                         
-                        imgElement.src = thumbnail;
-                        durationElement.textContent = duration;
-                    });
+                        imgElement.src = cachedThumbnail;
+                        
+                        // Add cached duration if available
+                        if (cachedDuration && durationElement) {
+                            durationElement.textContent = cachedDuration;
+                        }
+                    } else {
+                        // Generate video thumbnail client-side
+                        captureVideoFrame(url, function(thumbnail, duration) {
+                            try {
+                                localStorage.setItem(`thumb_${filename}`, thumbnail);
+                                localStorage.setItem(`duration_${filename}`, duration);
+                            } catch (e) {
+                                if (e.name === 'QuotaExceededError') {
+                                    clearOldThumbnails();
+                                }
+                            }
+                            
+                            // Set image source to the new thumbnail
+                            imgElement.onload = function() {
+                                imgElement.classList.add('loaded');
+                                if (loadingElement) loadingElement.style.display = 'none';
+                            };
+                            
+                            imgElement.src = thumbnail;
+                            
+                            // Add duration badge
+                            if (durationElement) {
+                                durationElement.textContent = duration;
+                            }
+                        });
+                    }
                 }
                 
                 // Add to fragment - this is the key fix
@@ -1995,8 +1979,9 @@ function saveAppState() {
 
 /**
  * Restores the app state from localStorage
+ * @param {boolean} loadContent - Whether to load content or just update state
  */
-function restoreAppState() {
+function restoreAppState(loadContent = true) {
     try {
         const savedState = localStorage.getItem('appState');
         if (savedState) {
@@ -2009,8 +1994,14 @@ function restoreAppState() {
             // Update UI to match
             updateFilterButtonState(currentFilter);
             
-            // Load gallery with restored filter
-            loadGallery(currentFilter, 1);
+            // Only load gallery if explicitly requested
+            // This prevents double-loading during initialization
+            if (loadContent) {
+                console.log(`Restoring gallery with filter: ${currentFilter}`);
+                loadGallery(currentFilter, 1);
+            } else {
+                console.log(`Updated filter state to: ${currentFilter} (without loading content)`);
+            }
         }
     } catch (e) {
         console.warn('Could not restore app state', e);
@@ -2022,3 +2013,35 @@ window.addEventListener('beforeunload', saveAppState);
 
 // Call these functions when needed
 document.addEventListener('DOMContentLoaded', restoreAppState);
+
+// Add this function to check for and generate server-side thumbnails
+async function getVideoThumbnail(filename) {
+    // First, check if server thumbnail exists
+    try {
+        // Try to load thumbnail from server (using a head request to check if exists)
+        const thumbnailUrl = `/thumbnails/${filename}.jpg`;
+        const response = await fetch(thumbnailUrl, { method: 'HEAD' });
+        
+        if (response.ok) {
+            // Server thumbnail exists
+            return thumbnailUrl;
+        }
+        
+        // If we get here, thumbnail doesn't exist on server, try to generate it
+        console.log(`Requesting server to generate thumbnail for ${filename}`);
+        const generateResponse = await fetch(`/generate-thumbnail/${filename}`);
+        const result = await generateResponse.json();
+        
+        if (result.success) {
+            // Server generated the thumbnail successfully
+            return result.path;
+        } else {
+            // Server failed to generate thumbnail, fall back to client-side generation
+            console.warn(`Server thumbnail generation failed for ${filename}: ${result.error}`);
+            return null;
+        }
+    } catch (error) {
+        console.warn(`Error checking/generating server thumbnail: ${error.message}`);
+        return null;
+    }
+}

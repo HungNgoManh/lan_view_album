@@ -405,7 +405,7 @@
         .btn-secondary:hover {
             background-color: #5a6268;
         }
-        .btn i {
+        .btn-filter i {
             margin-right: 0.25rem;
         }
         /* Add to your CSS */
@@ -657,11 +657,11 @@
         .filter-container {
             display: flex;
             justify-content: center;
-            padding: 0.75rem;
-            background-color: #f8f9fa;
+            padding: 0.5rem;
+            background-color: transparent;
             border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-            margin-top: 1.5rem;
+            margin-top: 0.5rem;
+            margin-bottom: 1.5rem;
         }
         .filter-tabs {
             background-color: #e9ecef;
@@ -726,21 +726,11 @@
         }
         /* Add subtle divider between main tabs and filter tabs */
         .ios-tabs {
-            margin-bottom: 1.5rem;
+            margin-bottom: 0.5rem;
             position: relative;
         }
         .ios-tabs::after {
-            content: '';
-            position: absolute;
-            bottom: -12px;
-            left: 10%;
-            right: 10%;
-            height: 1px;
-            background: linear-gradient(90deg, 
-                rgba(0,0,0,0) 0%, 
-                rgba(0,0,0,0.05) 20%, 
-                rgba(0,0,0,0.05) 80%, 
-                rgba(0,0,0,0) 100%);
+            content: none;
         }
     </style>
 </head>
@@ -762,18 +752,20 @@
   </li>
 </ul>
 
+<!-- Filter Tabs -->
+<div class="filter-container mb-4 mt-3">
+    <div class="btn-group filter-tabs" role="group">
+        <button type="button" class="btn btn-filter active" data-filter="all">All Files</button>
+        <button type="button" class="btn btn-filter" data-filter="image">Images</button>
+        <button type="button" class="btn btn-filter" data-filter="video">Videos</button>
+        <button type="button" class="btn btn-filter" data-filter="other">Other</button>
+    </div>
+</div>
+
 <!-- Tab Content -->
 <div class="tab-content" id="myTabContent">
   <div class="tab-pane fade show active" id="view" role="tabpanel" aria-labelledby="view-tab">
     <!-- Gallery -->
-    <div class="filter-container mb-4 mt-3">
-        <div class="btn-group filter-tabs" role="group">
-            <button type="button" class="btn btn-filter active" data-filter="all">All Files</button>
-            <button type="button" class="btn btn-filter" data-filter="image">Images</button>
-            <button type="button" class="btn btn-filter" data-filter="video">Videos</button>
-            <button type="button" class="btn btn-filter" data-filter="other">Other</button>
-        </div>
-    </div>
     <!-- Loading spinner - moved outside gallery -->
     <div id="loadingSpinner" class="position-fixed top-50 start-50 translate-middle d-none">
         <div class="spinner-border text-primary" role="status">
@@ -826,13 +818,13 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <div id="videoCarousel" class="carousel slide">
-          <div class="carousel-inner" id="carouselVideos">
-            <!-- Videos will be inserted here -->
-          </div>
+        <div class="video-container position-relative">
+          <!-- Video will be inserted here by JavaScript -->
         </div>
       </div>
-      <!-- Footer with buttons will be added dynamically -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
     </div>
   </div>
 </div>
