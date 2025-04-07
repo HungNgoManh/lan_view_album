@@ -141,16 +141,16 @@
         }
         /* Tab content styling */
         .tab-content {
-            padding: 20px;
+            padding: 5px;
             background-color: white;
             border-radius: 12px;
-            margin-top: 20px;
+            margin-top: 5px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.05);
         }
         .ios-filter {
             background-color: #f8f9fa;
             border-radius: 10px;
-            padding: 3px;
+            padding: 1px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         .btn-filter {
@@ -732,11 +732,37 @@
         .ios-tabs::after {
             content: none;
         }
+        /* Add styles for placeholder row */
+        .placeholder-row {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        .placeholder-row .card {
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+        .placeholder-row .spinner-border {
+            width: 1.5rem;
+            height: 1.5rem;
+            border-width: 0.2em;
+        }
+        .no-more-items {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        .no-more-items .alert {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
     </style>
 </head>
 <body class="p-3">
 
-<h2 class="mb-4 text-center">📂 My Cloud</h2>
+<h2 class="mb-2 text-center">📂 My Cloud</h2>
 
 <!-- Tabs -->
 <ul class="nav nav-tabs ios-tabs" id="myTab" role="tablist">
@@ -753,7 +779,7 @@
 </ul>
 
 <!-- Filter Tabs -->
-<div class="filter-container mb-4 mt-3">
+<div class="filter-container mb-2 mt-1">
     <div class="btn-group filter-tabs" role="group">
         <button type="button" class="btn btn-filter active" data-filter="all">All Files</button>
         <button type="button" class="btn btn-filter" data-filter="image">Images</button>

@@ -129,63 +129,6 @@ let isModalOpen = false;
 let loadingPaused = false;
 let loadingQueue = [];
 
-// Add a scroll direction detection function
-function handleScrollDirection() {
-    const st = window.pageYOffset || document.documentElement.scrollTop;
-    
-    // If scrolling up and not currently loading, clean up indicators
-    if (st < lastScrollTop && !isLoading) {
-        cleanupAllLoadingIndicators();
-    }
-    
-    lastScrollTop = st <= 0 ? 0 : st; // For Mobile or negative scrolling
-}
-
-/**
- * Handles scroll events for infinite loading
- */
-function handleScroll() {
-    // Skip processing if a modal is open or loading is already in progress
-    if (isModalOpen || isLoading || !hasMore) return;
-
-    // Clear existing timeout
-    if (scrollTimeout) {
-        clearTimeout(scrollTimeout);
-    }
-
-    // Set new timeout
-    scrollTimeout = setTimeout(() => {
-        const scrollPosition = window.innerHeight + window.scrollY;
-        const bodyHeight = document.body.offsetHeight;
-        const threshold = 800; // Load more when user is 800px from bottom
-
-        if (scrollPosition >= bodyHeight - threshold) {
-            console.log(`Loading more files - Page ${currentPage + 1} for filter ${currentFilter}`);
-            
-            // If loading is paused, queue this operation
-            if (loadingPaused) {
-                console.log('Loading paused, queueing load operation');
-                loadingQueue.push(() => loadGallery(currentFilter, currentPage + 1));
-            return;
-        }
-
-            // Add placeholder thumbnails only (no text header)
-            const gallery = document.getElementById('gallery');
-            if (gallery) {
-                // Add exactly 5 placeholder thumbnails
-                const placeholders = createPlaceholderThumbnails(5);
-                gallery.appendChild(placeholders);
-            }
-            
-            // Load the actual content
-            loadGallery(currentFilter, currentPage + 1);
-        }
-    }, 100); // Debounce for 100ms
-}
-
-// Make sure this is outside any functions, at the global level
-window.addEventListener('scroll', handleScroll);
-
 // Update the loadGallery function to handle URL parameters
 function loadGallery(filter = 'all', page = 1) {
     // Prevent duplicate loading requests
@@ -193,7 +136,6 @@ function loadGallery(filter = 'all', page = 1) {
         console.log(`Skipping duplicate loading request (filter: ${filter}, page: ${page})`);
         return;
     }
-    
     isLoading = true;
 
     // Update current filter
@@ -228,7 +170,7 @@ function loadGallery(filter = 'all', page = 1) {
     window.history.pushState({}, '', newUrl);
 
     // Fetch files with filter, pagination, and explicit sort order
-    fetch(`/uploads?filter=${filter}&page=${page}&limit=20&sort=date&order=desc`)
+    fetch(`/uploads?filter=${filter}&page=${page}&limit=25&sort=date&order=desc`)
         .then(res => {
             if (!res.ok) {
                 // Special handling for 500 errors when likely due to empty category
@@ -270,7 +212,7 @@ function loadGallery(filter = 'all', page = 1) {
             if (Array.isArray(data)) {
                 // Old format: array of filenames
                 standardizedData.files = data.map(filename => ({ filename }));
-                standardizedData.hasMore = data.length >= 20;
+                standardizedData.hasMore = data.length >= 25;
             } else if (data && typeof data === 'object') {
                 // New format with potential missing properties
                 standardizedData.files = Array.isArray(data.files) ? data.files : [];
@@ -373,7 +315,7 @@ function loadGallery(filter = 'all', page = 1) {
  */
 function processGalleryData(data, gallery, page, filter) {
     // Clean up: Remove all placeholders first
-    const allPlaceholders = gallery.querySelectorAll('.placeholder-thumbnail');
+    const allPlaceholders = gallery.querySelectorAll('.placeholder-thumbnail, .placeholder-row');
     allPlaceholders.forEach(placeholder => placeholder.remove());
     
     // Check if there are no files to display
@@ -416,23 +358,52 @@ function processGalleryData(data, gallery, page, filter) {
             `;
         } else {
             // End of content for pagination
-            const endMessage = document.createElement('div');
-            endMessage.className = 'col-12 text-center py-4';
-            endMessage.innerHTML = `
-                <div class="alert alert-light">
-                    <i class="bi bi-check-circle me-2"></i>
-                    You've reached the end of the content
-                </div>
-            `;
-            gallery.appendChild(endMessage);
+            showEndOfContentMessage(gallery);
         }
+        
+        // Update hasMore flag
+        hasMore = false;
         
         // Nothing more to process
         return Promise.resolve();
     }
     
+    // Update hasMore flag based on the data
+    hasMore = data.hasMore !== undefined ? data.hasMore : data.files.length >= 25;
+    
+    // If we have less than 25 items, we've reached the end
+    if (data.files.length < 25) {
+        hasMore = false;
+    }
+    
     // Process files with the existing function
-    return processFilesSequentially(data.files, gallery, page);
+    return processFilesSequentially(data.files, gallery, page).then(() => {
+        // After processing files, show end message if we've reached the end
+        if (!hasMore) {
+            showEndOfContentMessage(gallery);
+        }
+    });
+}
+
+function showEndOfContentMessage(gallery) {
+    // Remove any existing end message
+    const existingEndMessage = gallery.querySelector('.no-more-items');
+    if (existingEndMessage) {
+        existingEndMessage.remove();
+    }
+
+    // Show the message if we've reached the end of content
+    if (!hasMore) {
+        const endMessage = document.createElement('div');
+        endMessage.className = 'col-12 text-center py-4 no-more-items';
+        endMessage.innerHTML = `
+            <div class="alert alert-light">
+                <i class="bi bi-check-circle me-2"></i>
+                You've reached the end of the content
+            </div>
+        `;
+        gallery.appendChild(endMessage);
+    }
 }
 
 /**
@@ -1164,108 +1135,6 @@ function addBackToTopButton() {
     });
 }
 
-// Add this function to periodically clean up any stale loading indicators
-function cleanupStaleLoadingIndicators() {
-    if (!isLoading) {
-        const gallery = document.getElementById('gallery');
-        if (gallery) {
-            const loadingIndicators = gallery.querySelectorAll('.gallery-loading-indicator, .scroll-loading-indicator');
-            if (loadingIndicators.length > 0) {
-                console.log(`Cleaning up ${loadingIndicators.length} stale loading indicators`);
-                loadingIndicators.forEach(indicator => indicator.remove());
-            }
-        }
-    }
-}
-
-// Call this function periodically
-setInterval(cleanupStaleLoadingIndicators, 5000);
-
-/**
- * Creates a smaller set of placeholder thumbnails to show while loading content
- * @param {number} count - Number of placeholders to create
- * @returns {DocumentFragment} Fragment containing placeholder thumbnails
- */
-function createPlaceholderThumbnails(count = 5) {
-    // Always use exactly 5 thumbnails
-    count = 5;
-    
-    const fragment = document.createDocumentFragment();
-    
-    for (let i = 0; i < count; i++) {
-        const col = document.createElement('div');
-        col.className = 'col-3 mb-3 placeholder-thumbnail';
-        col.dataset.placeholderId = `placeholder-${Date.now()}-${i}`;
-        
-        // Enhanced placeholder with larger spinner and gradient background
-        col.innerHTML = `
-            <div class="card h-100 position-relative">
-                <div class="placeholder-content" style="aspect-ratio: 1/1; background: linear-gradient(to bottom right, #f0f0f0, #e6e6e6); border-radius: 4px;">
-                    <div class="position-absolute top-50 start-50 translate-middle text-center">
-                        <div class="spinner-border text-primary" role="status" style="width: 2rem; height: 2rem;">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        // Add a shimmer effect
-        const shimmer = document.createElement('div');
-        shimmer.className = 'shimmer-effect';
-        col.querySelector('.placeholder-content').appendChild(shimmer);
-        
-        fragment.appendChild(col);
-    }
-    
-    return fragment;
-}
-
-/**
- * Replaces a placeholder with actual content with a smooth transition
- * @param {HTMLElement} placeholder - The placeholder element to replace
- * @param {HTMLElement} realContent - The real content element
- */
-function replacePlaceholderWithContent(placeholder, realContent) {
-    realContent.classList.add('real-item-appearing');
-    placeholder.parentNode.insertBefore(realContent, placeholder);
-    
-    placeholder.classList.add('fade-out');
-    setTimeout(() => {
-        if (placeholder.parentNode) {
-            placeholder.remove();
-        }
-    }, 500);
-}
-
-/**
- * Shows "No more items" indicator when all content is loaded
- */
-function showNoMoreItemsIndicator() {
-    const gallery = document.getElementById('gallery');
-    if (!gallery) return;
-    
-    // Check if indicator already exists
-    if (gallery.querySelector('.no-more-items')) return;
-    
-    const indicator = document.createElement('div');
-    indicator.className = 'col-12 text-center py-4 my-3 no-more-items';
-    indicator.innerHTML = `
-        <div class="text-muted">
-            <i class="bi bi-check-circle"></i> 
-            You've reached the end of the content
-        </div>
-    `;
-    
-    gallery.appendChild(indicator);
-    
-    // Animate it
-    setTimeout(() => {
-        indicator.style.transition = 'opacity 0.5s ease-in-out';
-        indicator.style.opacity = '1';
-    }, 100);
-}
-
 /**
  * Periodically checks for and removes any lingering placeholder thumbnails
  */
@@ -1608,74 +1477,6 @@ async function processFilesSequentially(files, gallery, page) {
     gallery.appendChild(fragment);
     
     return fragment;
-}
-
-// In the loadGallery function, add this to handle cleaning up ALL loading indicators
-function cleanupAllLoadingIndicators() {
-    const gallery = document.getElementById('gallery');
-    if (gallery) {
-        // Find ALL placeholder thumbnails
-        const placeholders = gallery.querySelectorAll('.placeholder-thumbnail');
-        if (placeholders.length > 0) {
-            console.log(`Cleaning up ${placeholders.length} placeholder thumbnails`);
-            placeholders.forEach(placeholder => {
-                placeholder.classList.add('fade-out');
-                setTimeout(() => {
-                    if (placeholder.parentNode) {
-                        placeholder.remove();
-                    }
-                }, 300);
-            });
-        }
-        
-        // Also clean up any old text indicators that might exist
-        const loadingTexts = gallery.querySelectorAll('.loading-batch-header, .scroll-loading-indicator, .gallery-loading-indicator');
-        loadingTexts.forEach(indicator => indicator.remove());
-    }
-}
-
-// Update the interval cleanup to be more aggressive
-function periodicCleanup() {
-    // Only run if not actively loading
-    if (!isLoading) {
-        // Clean up loading indicators
-        cleanupAllLoadingIndicators();
-        
-        // Clean up placeholders
-        const gallery = document.getElementById('gallery');
-        if (gallery) {
-            const placeholders = gallery.querySelectorAll('.placeholder-thumbnail');
-            if (placeholders.length > 0) {
-                console.log(`Periodic cleanup: Found ${placeholders.length} placeholder thumbnails`);
-                placeholders.forEach(placeholder => placeholder.remove());
-            }
-        }
-    }
-}
-
-// Run this cleanup every 3 seconds
-setInterval(periodicCleanup, 3000);
-
-/**
- * Truncates a filename to the specified length
- * @param {string} filename - The filename to truncate
- * @param {number} maxLength - Maximum length of the truncated filename
- * @returns {string} Truncated filename
- */
-function truncateFilename(filename, maxLength = 30) {
-    if (filename.length <= maxLength) return filename;
-    
-    const extension = filename.split('.').pop();
-    const nameWithoutExt = filename.substring(0, filename.length - extension.length - 1);
-    
-    // Keep extension and truncate middle of filename
-    if (nameWithoutExt.length > maxLength - 3 - extension.length) {
-        const start = Math.ceil((maxLength - 3 - extension.length) / 2);
-        const end = nameWithoutExt.length - start;
-        return `${nameWithoutExt.substring(0, start)}...${nameWithoutExt.substring(end)}.${extension}`;
-    }
-    
-    return filename;
 }
 
 /**
@@ -2045,3 +1846,130 @@ async function getVideoThumbnail(filename) {
         return null;
     }
 }
+
+function periodicCleanup() {
+    // Only run if not actively loading
+    if (!isLoading) {
+        // Clean up any stale loading indicators
+        const staleIndicators = document.querySelectorAll('.loading-indicator');
+        staleIndicators.forEach(indicator => {
+            const timestamp = parseInt(indicator.dataset.timestamp);
+            if (Date.now() - timestamp > 5000) { // 5 seconds old
+                indicator.remove();
+            }
+        });
+    }
+}
+
+// Run this cleanup every 3 seconds
+setInterval(periodicCleanup, 3000);
+
+/**
+ * Truncates a filename to the specified length
+ * @param {string} filename - The filename to truncate
+ * @param {number} maxLength - Maximum length of the truncated filename
+ * @returns {string} Truncated filename
+ */
+function truncateFilename(filename, maxLength = 30) {
+    if (filename.length <= maxLength) return filename;
+    
+    const extension = filename.split('.').pop();
+    const nameWithoutExt = filename.substring(0, filename.length - extension.length - 1);
+    
+    // Keep extension and truncate middle of filename
+    if (nameWithoutExt.length > maxLength - 3 - extension.length) {
+        const start = Math.ceil((maxLength - 3 - extension.length) / 2);
+        const end = nameWithoutExt.length - start;
+        return `${nameWithoutExt.substring(0, start)}...${nameWithoutExt.substring(end)}.${extension}`;
+    }
+    
+    return filename;
+}
+
+/**
+ * Creates a smaller set of placeholder thumbnails to show while loading content
+ * @param {number} count - Number of placeholders to create
+ * @returns {DocumentFragment} Fragment containing placeholder thumbnails
+ */
+function createPlaceholderThumbnails(count = 5) {
+    // Create a document fragment for better performance
+    const fragment = document.createDocumentFragment();
+    
+    for (let i = 0; i < count; i++) {
+        const col = document.createElement('div');
+        col.className = 'col-3 mb-3 placeholder-thumbnail';
+        
+        col.innerHTML = `
+            <div class="card h-100">
+                <div class="position-relative" style="aspect-ratio: 1/1; background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite;">
+                    <div class="position-absolute top-50 start-50 translate-middle">
+                        <div class="spinner-border text-primary spinner-border-sm" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        fragment.appendChild(col);
+    }
+    
+    return fragment;
+}
+
+/**
+ * Handles scroll events for infinite loading
+ */
+function handleScroll() {
+    // Skip processing if a modal is open or loading is already in progress
+    if (isModalOpen || isLoading) return;
+
+    // Clear existing timeout
+    if (scrollTimeout) {
+        clearTimeout(scrollTimeout);
+    }
+
+    // Set new timeout
+    scrollTimeout = setTimeout(() => {
+        const scrollPosition = window.innerHeight + window.scrollY;
+        const bodyHeight = document.body.offsetHeight;
+        const threshold = 500; // Load more when user is 500px from bottom
+
+        if (scrollPosition >= bodyHeight - threshold) {
+            // If we've reached the end of content, show the message
+            if (!hasMore) {
+                const gallery = document.getElementById('gallery');
+                if (gallery) {
+                    showEndOfContentMessage(gallery);
+                }
+                return;
+            }
+
+            console.log(`Loading more files - Page ${currentPage + 1} for filter ${currentFilter}`);
+            
+            // If loading is paused, queue this operation
+            if (loadingPaused) {
+                console.log('Loading paused, queueing load operation');
+                loadingQueue.push(() => loadGallery(currentFilter, currentPage + 1));
+                return;
+            }
+
+            // Load the actual content
+            loadGallery(currentFilter, currentPage + 1);
+        }
+    }, 100); // Debounce for 100ms
+}
+
+// Make sure this is outside any functions, at the global level
+window.addEventListener('scroll', handleScroll);
+
+/**
+ * Handles scroll direction detection for cleanup
+ */
+function handleScrollDirection() {
+    const st = window.pageYOffset || document.documentElement.scrollTop;
+    lastScrollTop = st <= 0 ? 0 : st; // For Mobile or negative scrolling
+}
+
+// Make sure this is outside any functions, at the global level
+window.addEventListener('scroll', handleScrollDirection);
