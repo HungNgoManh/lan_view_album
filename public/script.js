@@ -609,14 +609,14 @@ function showSingleImageModal(selectedUrl, filename, truncatedFilename) {
     isModalOpen = true;
     
     const imageModal = document.getElementById('imageModal');
-    const carouselImages = document.getElementById('carouselImages');
-    const imageModalTitle = document.querySelector('#imageModal .modal-title');
-    
+        const carouselImages = document.getElementById('carouselImages');
+        const imageModalTitle = document.querySelector('#imageModal .modal-title');
+        
     if (!carouselImages || !imageModal) {
-        console.error('Image modal elements not found');
-        return;
-    }
-    
+            console.error('Image modal elements not found');
+            return;
+        }
+        
     // Disable any carousel functionality
     const prevButton = imageModal.querySelector('.carousel-control-prev');
     const nextButton = imageModal.querySelector('.carousel-control-next');
@@ -624,10 +624,10 @@ function showSingleImageModal(selectedUrl, filename, truncatedFilename) {
     if (nextButton) nextButton.style.display = 'none';
     
     // Clear any existing content
-    carouselImages.innerHTML = '';
-    
+        carouselImages.innerHTML = '';
+        
     // Set modal title
-    if (imageModalTitle) {
+        if (imageModalTitle) {
         imageModalTitle.textContent = truncatedFilename;
         imageModalTitle.title = filename; // Full filename on hover
         imageModalTitle.style.overflow = 'hidden';
@@ -823,12 +823,12 @@ function showVideoModal(url, filename, title = '') {
     videoContainer.appendChild(video);
     
     // Add loading indicator
-    const loadingIndicator = document.createElement('div');
+                const loadingIndicator = document.createElement('div');
     loadingIndicator.className = 'position-absolute top-50 start-50 translate-middle';
-    loadingIndicator.innerHTML = `
+                loadingIndicator.innerHTML = `
         <div class="spinner-border text-light" role="status">
-            <span class="visually-hidden">Loading...</span>
-        </div>
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
     `;
     videoContainer.appendChild(loadingIndicator);
     

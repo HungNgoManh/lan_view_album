@@ -182,6 +182,8 @@ app.get('/uploads', async (req, res) => {
             filteredFiles = fileObjects.filter(file => file.type === 'video');
         } else if (filter === 'other') {
             filteredFiles = fileObjects.filter(file => file.type === 'other');
+        } else if (filter === 'all') {
+            filteredFiles = fileObjects.filter(file => file.type === 'image' || file.type === 'video');
         }
         
         // Count by type
@@ -302,3 +304,24 @@ app.post('/rename', async (req, res) => {
 app.listen(PORT, () => {
     console.log(`🚀 Server running at http://localhost:${PORT}`);
 });
+
+function filterFiles(files, filter) {
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+    const videoExtensions = ['.mp4', '.webm', '.mov'];
+    
+    return files.filter(file => {
+        const ext = path.extname(file).toLowerCase();
+        switch (filter) {
+            case 'image':
+                return imageExtensions.includes(ext);
+            case 'video':
+                return videoExtensions.includes(ext);
+            case 'other':
+                return !imageExtensions.includes(ext) && !videoExtensions.includes(ext);
+            case 'all':
+                return imageExtensions.includes(ext) || videoExtensions.includes(ext);
+            default:
+                return true;
+        }
+    });
+}
