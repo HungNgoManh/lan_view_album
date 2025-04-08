@@ -35,7 +35,7 @@ uppy.on('file-added', async (file) => {
         : [];
     
     console.log(`Checking for duplicates against existing files (${existingFiles.length}/${data?.counts?.all || 'unknown'} total files):`);
-    
+
     if (existingFiles.includes(file.name)) {
         // Show toast message
         const toastEl = document.getElementById('uploadToast');
@@ -65,7 +65,11 @@ uppy.on('complete', (result) => {
         document.getElementById('toastMessage').textContent = '✅ Upload complete!';
         toast.show();
 
-        loadGallery();
+        // Clear the filter cache since new files have been added
+        clearFilterCache();
+        
+        // Reload the gallery
+        loadGallery(currentFilter, 1, true);
         
         // Clear all files from Uppy Dashboard
         uppy.cancelAll();
@@ -137,13 +141,72 @@ let isModalOpen = false;
 let loadingPaused = false;
 let loadingQueue = [];
 
-// Update the loadGallery function to handle URL parameters
-function loadGallery(filter = 'all', page = 1) {
+// Add a cache object to store loaded content by filter
+const filterCache = {
+    all: { loaded: false, html: '', currentPage: 0, hasMore: true, counts: {} },
+    image: { loaded: false, html: '', currentPage: 0, hasMore: true, counts: {} },
+    video: { loaded: false, html: '', currentPage: 0, hasMore: true, counts: {} },
+    other: { loaded: false, html: '', currentPage: 0, hasMore: true, counts: {} }
+};
+
+// Add a function to save the current state to cache
+function saveToFilterCache(filter) {
+    const gallery = document.getElementById('gallery');
+    if (gallery) {
+        // Remove any placeholder thumbnails before saving to cache
+        const placeholders = gallery.querySelectorAll('.placeholder-thumbnail');
+        placeholders.forEach(placeholder => placeholder.remove());
+        
+        // Now save the clean gallery HTML to cache
+        filterCache[filter].loaded = true;
+        filterCache[filter].html = gallery.innerHTML;
+        filterCache[filter].currentPage = currentPage;
+        filterCache[filter].hasMore = hasMore;
+        console.log(`Saved ${filter} filter state to cache (page ${currentPage})`);
+    }
+}
+
+// Update the loadGallery function to properly use cache when available
+function loadGallery(filter = 'all', page = 1, forceReload = false) {
     // Prevent duplicate loading requests
     if (isLoading) {
         console.log(`Skipping duplicate loading request (filter: ${filter}, page: ${page})`);
-        return;
+            return;
+        }
+
+    // Skip everything and use cache immediately if available and not forcing reload
+    if (!forceReload && filterCache[filter].loaded && page === 1) {
+        console.log(`Loading ${filter} filter directly from cache`);
+        
+        // Get the gallery element
+        const gallery = document.getElementById('gallery');
+        if (gallery) {
+            // First clear any existing content including placeholders
+            gallery.innerHTML = '';
+            
+            // Apply cached content directly
+            gallery.innerHTML = filterCache[filter].html;
+            currentPage = filterCache[filter].currentPage;
+            hasMore = filterCache[filter].hasMore;
+            currentFilter = filter;
+            
+            // Reattach event handlers to the cached content
+            reattachEventHandlers();
+            
+            // Update UI states immediately
+            updateFilterButtonState(filter);
+            
+            // Update URL without reloading the page
+            const newUrl = new URL(window.location);
+            newUrl.searchParams.set('filter', filter);
+            window.history.pushState({}, '', newUrl);
+            
+            console.log(`Restored ${filter} filter from cache (page ${currentPage})`);
+            return;
+        }
     }
+    
+    // If we got here, we need to load content from the server
     isLoading = true;
 
     // Update current filter
@@ -151,19 +214,17 @@ function loadGallery(filter = 'all', page = 1) {
 
     console.log(`Loading gallery with filter: ${filter}, page: ${page}`);
 
-    // Show loading spinner only on first load
-    const loadingSpinner = document.getElementById('loadingSpinner');
-    if (page === 1 && loadingSpinner) {
-        loadingSpinner.classList.remove('d-none');
-    }
-
     // For first page load, replace content with placeholders
-    const gallery = document.getElementById('gallery');
+        const gallery = document.getElementById('gallery');
     if (gallery && page === 1) {
         // Clear existing content completely before adding new content
         gallery.innerHTML = '';
         
-        // Add placeholders for initial load
+        // Add more placeholders for initial load to fill the screen better
+        const placeholders = createPlaceholderThumbnails(10);
+        gallery.appendChild(placeholders);
+    } else if (gallery && page > 1) {
+        // For pagination, add placeholders with the same style as initial load
         const placeholders = createPlaceholderThumbnails(5);
         gallery.appendChild(placeholders);
     }
@@ -244,30 +305,6 @@ function loadGallery(filter = 'all', page = 1) {
         .catch(error => {
             console.error('Error loading gallery:', error);
             
-            // If it's a 500 error and we're not on the "all" filter, switch to "all"
-            if (error.message.includes('500') && filter !== 'all') {
-                console.log(`Switching to 'all' filter due to server error`);
-                showToast('warning', `Could not load ${filter} category, showing all files instead`);
-                
-                // Switch to all filter after a short delay
-                setTimeout(() => {
-                    currentFilter = 'all';
-                    loadGallery('all', 1);
-                    updateFilterButtonState('all');
-                    
-                    // Update URL
-                    const newUrl = new URL(window.location);
-                    newUrl.searchParams.set('filter', 'all');
-                    window.history.pushState({}, '', newUrl);
-                }, 500);
-                
-                return;
-            }
-            
-            // Remove placeholders
-            const placeholders = gallery.querySelectorAll('.placeholder-thumbnail');
-            placeholders.forEach(placeholder => placeholder.remove());
-            
             // Show user-friendly error message
             if (page === 1) {
                 gallery.innerHTML = `
@@ -297,11 +334,6 @@ function loadGallery(filter = 'all', page = 1) {
             }
         })
         .finally(() => {
-            // Hide loading spinner
-            if (loadingSpinner) {
-                loadingSpinner.classList.add('d-none');
-            }
-            
             // Re-enable filter buttons
             filterButtons.forEach(btn => btn.disabled = false);
             
@@ -310,9 +342,14 @@ function loadGallery(filter = 'all', page = 1) {
             
             // Ensure the correct filter button is active
             updateFilterButtonState(filter);
+            
+            // Save current state to cache if this is page 1 or later
+            if (page >= 1) {
+                saveToFilterCache(filter);
+            }
         });
-}
-
+    }
+    
 /**
  * Processes gallery data and updates the UI
  * @param {Object} data - The standardized data object
@@ -322,14 +359,16 @@ function loadGallery(filter = 'all', page = 1) {
  * @returns {Promise} - A promise that resolves when processing is complete
  */
 function processGalleryData(data, gallery, page, filter) {
-    // Clean up: Remove all placeholders first
-    const allPlaceholders = gallery.querySelectorAll('.placeholder-thumbnail, .placeholder-row');
-    allPlaceholders.forEach(placeholder => placeholder.remove());
+    // Don't remove placeholders yet, we'll do that after content loads
     
     // Check if there are no files to display
     if (!data.files || data.files.length === 0) {
         // If this is page 1, show empty state message
         if (page === 1) {
+            // Now we can safely remove all placeholders
+            const allPlaceholders = gallery.querySelectorAll('.placeholder-thumbnail');
+            allPlaceholders.forEach(placeholder => placeholder.remove());
+            
             // Clear any existing content first to prevent duplicates
             gallery.innerHTML = '';
             
@@ -361,12 +400,19 @@ function processGalleryData(data, gallery, page, filter) {
                         <button class="btn btn-primary mt-2" onclick="document.getElementById('upload-tab').click()">
                             <i class="bi bi-upload me-2"></i> Upload Files
                         </button>
-                    </div>
-                </div>
+                                </div>
+                                </div>
             `;
-        } else {
+                } else {
             // End of content for pagination
             showEndOfContentMessage(gallery);
+            
+            // Remove pagination placeholders
+            const paginationPlaceholders = gallery.querySelectorAll('.placeholder-thumbnail');
+            paginationPlaceholders.forEach(placeholder => {
+                placeholder.classList.add('fade-out');
+                setTimeout(() => placeholder.remove(), 300);
+            });
         }
         
         // Update hasMore flag
@@ -386,12 +432,22 @@ function processGalleryData(data, gallery, page, filter) {
     
     // Process files with the existing function
     return processFilesSequentially(data.files, gallery, page).then(() => {
+        // After processing files, we can safely remove placeholders
+        const allPlaceholders = gallery.querySelectorAll('.placeholder-thumbnail');
+        if (allPlaceholders.length > 0) {
+            console.log(`Removing ${allPlaceholders.length} placeholders after content load`);
+            allPlaceholders.forEach(placeholder => {
+                // Remove directly without animation for cleaner switch
+                placeholder.remove();
+            });
+        }
+        
         // After processing files, show end message if we've reached the end
         if (!hasMore) {
             showEndOfContentMessage(gallery);
-        }
-    });
-}
+            }
+        });
+    }
 
 function showEndOfContentMessage(gallery) {
     // Remove any existing end message
@@ -521,9 +577,9 @@ function renameFilePrompt(oldName) {
 
 function showImageModal(selectedUrl) {
     // Get file extension to determine if it's a video or image
-    const ext = selectedUrl.split('.').pop().toLowerCase();
-    const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
     const filename = selectedUrl.split('/').pop();
+    const ext = filename.split('.').pop().toLowerCase();
+    const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
     
     // Truncate filename to prevent layout issues
     const truncatedFilename = truncateFilename(filename, 30);
@@ -550,14 +606,14 @@ function showSingleImageModal(selectedUrl, filename, truncatedFilename) {
     isModalOpen = true;
     
     const imageModal = document.getElementById('imageModal');
-    const carouselImages = document.getElementById('carouselImages');
-    const imageModalTitle = document.querySelector('#imageModal .modal-title');
-    
+        const carouselImages = document.getElementById('carouselImages');
+        const imageModalTitle = document.querySelector('#imageModal .modal-title');
+        
     if (!carouselImages || !imageModal) {
-        console.error('Image modal elements not found');
-        return;
-    }
-    
+            console.error('Image modal elements not found');
+            return;
+        }
+        
     // Disable any carousel functionality
     const prevButton = imageModal.querySelector('.carousel-control-prev');
     const nextButton = imageModal.querySelector('.carousel-control-next');
@@ -565,10 +621,10 @@ function showSingleImageModal(selectedUrl, filename, truncatedFilename) {
     if (nextButton) nextButton.style.display = 'none';
     
     // Clear any existing content
-    carouselImages.innerHTML = '';
-    
+        carouselImages.innerHTML = '';
+        
     // Set modal title
-    if (imageModalTitle) {
+        if (imageModalTitle) {
         imageModalTitle.textContent = truncatedFilename;
         imageModalTitle.title = filename;
     }
@@ -745,12 +801,12 @@ function showVideoModal(url, filename, title = '') {
     videoContainer.appendChild(video);
     
     // Add loading indicator
-    const loadingIndicator = document.createElement('div');
+                const loadingIndicator = document.createElement('div');
     loadingIndicator.className = 'position-absolute top-50 start-50 translate-middle';
-    loadingIndicator.innerHTML = `
+                loadingIndicator.innerHTML = `
         <div class="spinner-border text-light" role="status">
-            <span class="visually-hidden">Loading...</span>
-        </div>
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
     `;
     videoContainer.appendChild(loadingIndicator);
     
@@ -798,40 +854,52 @@ let appInitialized = false;
 
 // Main initialization function
 document.addEventListener('DOMContentLoaded', function() {
-    // Prevent double initialization
-    if (appInitialized) {
-        console.log('App already initialized, skipping duplicate initialization');
-        return;
-    }
-    
-    console.log('Initializing app for the first time');
-    appInitialized = true;
-    
-    // Show/hide filter tabs based on active tab
-    const filterContainer = document.querySelector('.filter-container');
-    const viewTab = document.getElementById('view-tab');
-    const uploadTab = document.getElementById('upload-tab');
-    
-    if (filterContainer && viewTab && uploadTab) {
-        // Show filter tabs when View Files tab is active, hide otherwise
-        viewTab.addEventListener('shown.bs.tab', function() {
-            filterContainer.style.display = 'flex';
-        });
+    // Check if forceReloadThumbnails is set in localStorage
+    if (localStorage.getItem('forceReloadThumbnails') === 'true') {
+        console.log('Force reloading thumbnails...');
+        localStorage.removeItem('forceReloadThumbnails');
+        localStorage.removeItem('lastUpdatedThumbnail');
         
-        uploadTab.addEventListener('shown.bs.tab', function() {
-            filterContainer.style.display = 'none';
-        });
-        
-        // Set initial state
-        if (viewTab.classList.contains('active')) {
-            filterContainer.style.display = 'flex';
-        } else {
-            filterContainer.style.display = 'none';
+        // Clear thumbnail cache
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key.startsWith('img_thumb_') || key.startsWith('thumb_') || key.startsWith('duration_')) {
+                localStorage.removeItem(key);
+            }
         }
     }
     
-    // Clear any existing event handlers from filter buttons
+    // Create toast container if it doesn't exist
+    if (!document.getElementById('toastContainer')) {
+        const toastContainer = document.createElement('div');
+        toastContainer.id = 'toastContainer';
+        toastContainer.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+        toastContainer.style.zIndex = '5';
+        document.body.appendChild(toastContainer);
+    }
+    
+    // Create upload toast if it doesn't exist
+    if (!document.getElementById('uploadToast')) {
+        const uploadToast = document.createElement('div');
+        uploadToast.id = 'uploadToast';
+        uploadToast.className = 'toast align-items-center';
+        uploadToast.setAttribute('role', 'alert');
+        uploadToast.setAttribute('aria-live', 'assertive');
+        uploadToast.setAttribute('aria-atomic', 'true');
+        uploadToast.innerHTML = `
+            <div class="d-flex">
+                <div class="toast-body" id="toastMessage">
+                </div>
+                <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        `;
+        document.getElementById('toastContainer').appendChild(uploadToast);
+    }
+    
+    // Get filter buttons
     const filterButtons = document.querySelectorAll('.btn-filter');
+    
+    // Handle filter button clicks with cache awareness
     filterButtons.forEach(button => {
         // Clone button to remove all event listeners
         const newButton = button.cloneNode(true);
@@ -857,10 +925,34 @@ document.addEventListener('DOMContentLoaded', function() {
             filterButtons.forEach(btn => btn.classList.remove('active'));
             this.classList.add('active');
             
-            // Load gallery with this filter
-            loadGallery(targetFilter, 1);
+            // Check if the button has a "force reload" data attribute
+            const forceReload = this.dataset.forceReload === 'true';
+            
+            // Load gallery with this filter (use cache if available)
+            loadGallery(targetFilter, 1, forceReload);
         });
     });
+
+    // Add a debug button to clear cache if in development mode
+    const devMode = localStorage.getItem('devMode') === 'true';
+    if (devMode) {
+        // Add clear cache button
+        const filterContainer = document.querySelector('.filter-container');
+        if (filterContainer) {
+            const clearCacheBtn = document.createElement('button');
+            clearCacheBtn.className = 'btn btn-sm btn-outline-danger ms-2';
+            clearCacheBtn.innerHTML = '<i class="bi bi-trash"></i> Clear Cache';
+            clearCacheBtn.onclick = function() {
+                // Clear filter cache
+                clearFilterCache();
+                // Force reload current filter
+                loadGallery(currentFilter, 1, true);
+                console.log('Filter cache cleared');
+                showToast('info', 'Filter cache cleared');
+            };
+            filterContainer.appendChild(clearCacheBtn);
+        }
+    }
 
     // Clear any existing gallery content
     const gallery = document.getElementById('gallery');
@@ -887,9 +979,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // Update active state
     updateFilterButtonState(initialFilter);
     
-    // Load gallery only once
+    // Load gallery only once - with cache awareness
     console.log(`Initial load with filter: ${initialFilter}`);
-    loadGallery(initialFilter, 1);
+    loadGallery(initialFilter, 1, false);
     
     // Add Back to Top button
     addBackToTopButton();
@@ -905,6 +997,38 @@ document.addEventListener('DOMContentLoaded', function() {
     // Add scroll direction detection
     window.removeEventListener('scroll', handleScrollDirection);
     window.addEventListener('scroll', handleScrollDirection);
+    
+    // Setup modal state tracking
+    const singleImageModal = document.getElementById('singleImageModal');
+    if (singleImageModal) {
+        singleImageModal.addEventListener('show.bs.modal', () => {
+            isModalOpen = true;
+            pauseBackgroundLoading();
+        });
+        
+        singleImageModal.addEventListener('hidden.bs.modal', () => {
+            isModalOpen = false;
+            resumeBackgroundLoading();
+        });
+    }
+    
+    const videoModal = document.getElementById('videoModal');
+    if (videoModal) {
+        videoModal.addEventListener('show.bs.modal', () => {
+            isModalOpen = true;
+            pauseBackgroundLoading();
+        });
+        
+        videoModal.addEventListener('hidden.bs.modal', () => {
+            isModalOpen = false;
+            resumeBackgroundLoading();
+        });
+    }
+    
+    const addDebugTools = (localStorage.getItem('devMode') === 'true');
+    if (addDebugTools) {
+        addDevTools();
+    }
 });
 
 // Add this function to handle loading indicator clicks
@@ -1154,20 +1278,15 @@ function cleanupPlaceholders() {
             if (remainingPlaceholders.length > 0) {
                 console.warn(`Cleanup: Found ${remainingPlaceholders.length} remaining placeholders. Removing them.`);
                 remainingPlaceholders.forEach(placeholder => {
-                    placeholder.classList.add('fade-out');
-                    setTimeout(() => {
-                        if (placeholder.parentNode) {
-                            placeholder.remove();
-                        }
-                    }, 300);
+                    placeholder.remove();
                 });
             }
         }
     }
 }
 
-// Run cleanup every 5 seconds
-setInterval(cleanupPlaceholders, 5000);
+// Run cleanup every 10 seconds - longer interval to avoid conflicts
+setInterval(cleanupPlaceholders, 10000);
 
 /**
  * Processes files sequentially with a delay between each for a smoother appearance
@@ -1905,16 +2024,21 @@ function createPlaceholderThumbnails(count = 5) {
     
     for (let i = 0; i < count; i++) {
         const col = document.createElement('div');
-        col.className = 'col-3 mb-3 placeholder-thumbnail';
+        col.className = 'col-3 col-md-3 col-lg-2 col-xl-1 mb-3 placeholder-thumbnail';
         
         col.innerHTML = `
             <div class="card h-100">
-                <div class="position-relative" style="aspect-ratio: 1/1; background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite;">
+                <div class="placeholder-content position-relative" style="aspect-ratio: 1/1; background: #f0f0f0;">
+                    <div class="shimmer-effect"></div>
                     <div class="position-absolute top-50 start-50 translate-middle">
-                        <div class="spinner-border text-primary spinner-border-sm" role="status">
+                        <div class="spinner-border text-primary" role="status">
                             <span class="visually-hidden">Loading...</span>
                         </div>
                     </div>
+                </div>
+                <div class="card-body p-2">
+                    <div class="bg-light w-75 mb-1" style="height: 12px; border-radius: 3px;"></div>
+                    <div class="bg-light w-50" style="height: 10px; border-radius: 3px;"></div>
                 </div>
             </div>
         `;
@@ -1981,3 +2105,69 @@ function handleScrollDirection() {
 
 // Make sure this is outside any functions, at the global level
 window.addEventListener('scroll', handleScrollDirection);
+
+// Function to clear the filter cache
+function clearFilterCache() {
+    for (const key in filterCache) {
+        filterCache[key].loaded = false;
+        filterCache[key].html = '';
+        filterCache[key].currentPage = 0;
+    }
+    console.log('Filter cache cleared');
+}
+
+// Add a function to reattach event handlers to cached content
+function reattachEventHandlers() {
+    const gallery = document.getElementById('gallery');
+    if (!gallery) return;
+    
+    console.log('Reattaching event handlers to cached content');
+    
+    // Reattach image click handlers - only select images inside thumbnail containers
+    const imageItems = gallery.querySelectorAll('.real-item:not(:has(.video-duration))');
+    imageItems.forEach(container => {
+        const filename = container.getAttribute('data-filename');
+        if (filename) {
+            const url = `/uploads/${filename}`;
+            const imgElement = container.querySelector('.thumbnail-img');
+            if (imgElement) {
+                imgElement.onclick = () => showSingleImageModal(url, filename, truncateFilename(filename, 30));
+            }
+        }
+    });
+    
+    // Reattach video thumbnail click handlers - only select containers with video duration badges
+    const videoItems = gallery.querySelectorAll('.real-item:has(.video-duration)');
+    videoItems.forEach(container => {
+        const filename = container.getAttribute('data-filename');
+        if (filename) {
+            const url = `/uploads/${filename}`;
+            const thumbnailContainer = container.querySelector('.thumbnail-container');
+            if (thumbnailContainer) {
+                thumbnailContainer.onclick = () => showVideoModal(url, filename, truncateFilename(filename, 30));
+            }
+        }
+    });
+    
+    // Fallback approach for browsers that don't support :has() selector
+    gallery.querySelectorAll('.real-item').forEach(item => {
+        const filename = item.getAttribute('data-filename');
+        if (!filename) return;
+        
+        const url = `/uploads/${filename}`;
+        const ext = filename.split('.').pop().toLowerCase();
+        const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
+        
+        if (isVideo) {
+            const thumbnailContainer = item.querySelector('.thumbnail-container');
+            if (thumbnailContainer) {
+                thumbnailContainer.onclick = () => showVideoModal(url, filename, truncateFilename(filename, 30));
+            }
+        } else {
+            const imgElement = item.querySelector('.thumbnail-img');
+            if (imgElement) {
+                imgElement.onclick = () => showSingleImageModal(url, filename, truncateFilename(filename, 30));
+            }
+        }
+    });
+}
