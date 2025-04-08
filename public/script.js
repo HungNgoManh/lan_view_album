@@ -24,10 +24,18 @@ const uppy = new Uppy.Uppy({ restrictions: { maxNumberOfFiles: 1000 } })
 uppy.on('file-added', async (file) => {
     console.log(`Added file: ${file.name} (${file.size} bytes)`);
 
-    // Check for duplicate files
-    const response = await fetch('/uploads');
-    const existingFiles = await response.json();
-
+    // Check for duplicate files - get ALL files without pagination
+    const response = await fetch('/uploads?checkDuplicates=true');
+    const data = await response.json();
+    
+    // Extract filenames from the response
+    // The server returns { files: [{filename, size, modified, type}, ...], ... }
+    const existingFiles = data && data.files && Array.isArray(data.files) 
+        ? data.files.map(file => file.filename) 
+        : [];
+    
+    console.log(`Checking for duplicates against existing files (${existingFiles.length}/${data?.counts?.all || 'unknown'} total files):`);
+    
     if (existingFiles.includes(file.name)) {
         // Show toast message
         const toastEl = document.getElementById('uploadToast');

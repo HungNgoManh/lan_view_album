@@ -148,6 +148,7 @@ app.get('/uploads', async (req, res) => {
         const filter = req.query.filter || 'all';
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 20;
+        const checkDuplicates = req.query.checkDuplicates === 'true';
         
         const files = await fs.readdir(UPLOAD_DIR);
         
@@ -190,6 +191,15 @@ app.get('/uploads', async (req, res) => {
             others: fileObjects.filter(file => file.type === 'other').length
         };
         counts.all = counts.images + counts.videos + counts.others;
+        
+        // For duplicate checking, return all files without pagination
+        if (checkDuplicates) {
+            return res.json({
+                files: filteredFiles,
+                counts,
+                total: filteredFiles.length
+            });
+        }
         
         // Pagination
         const startIndex = (page - 1) * limit;
