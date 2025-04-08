@@ -508,6 +508,9 @@ function deleteFile(filename) {
             // Show success toast
             showToast('success', `File "${truncateFilename(filename, 20)}" deleted successfully.`);
             
+            // Clear the filter cache since a file has been deleted
+            clearFilterCache();
+            
             // Check if we're on a tab that might now be empty
             if ((currentFilterBeforeDeletion === 'image' && wasImage) ||
                 (currentFilterBeforeDeletion === 'video' && wasVideo) ||
@@ -527,7 +530,7 @@ function deleteFile(filename) {
             }
             
             // Important: Reload the gallery with the same filter that was active
-            loadGallery(currentFilterBeforeDeletion, 1); // Reset to page 1
+            loadGallery(currentFilterBeforeDeletion, 1, true); // Force reload to ensure cache is cleared
             
             // Also update the filter in the URL to maintain state
             const newUrl = new URL(window.location);
@@ -606,14 +609,14 @@ function showSingleImageModal(selectedUrl, filename, truncatedFilename) {
     isModalOpen = true;
     
     const imageModal = document.getElementById('imageModal');
-        const carouselImages = document.getElementById('carouselImages');
-        const imageModalTitle = document.querySelector('#imageModal .modal-title');
-        
+    const carouselImages = document.getElementById('carouselImages');
+    const imageModalTitle = document.querySelector('#imageModal .modal-title');
+    
     if (!carouselImages || !imageModal) {
-            console.error('Image modal elements not found');
-            return;
-        }
-        
+        console.error('Image modal elements not found');
+        return;
+    }
+    
     // Disable any carousel functionality
     const prevButton = imageModal.querySelector('.carousel-control-prev');
     const nextButton = imageModal.querySelector('.carousel-control-next');
@@ -621,12 +624,18 @@ function showSingleImageModal(selectedUrl, filename, truncatedFilename) {
     if (nextButton) nextButton.style.display = 'none';
     
     // Clear any existing content
-        carouselImages.innerHTML = '';
-        
+    carouselImages.innerHTML = '';
+    
     // Set modal title
-        if (imageModalTitle) {
+    if (imageModalTitle) {
         imageModalTitle.textContent = truncatedFilename;
-        imageModalTitle.title = filename;
+        imageModalTitle.title = filename; // Full filename on hover
+        imageModalTitle.style.overflow = 'hidden';
+        imageModalTitle.style.textOverflow = 'ellipsis';
+        imageModalTitle.style.whiteSpace = 'nowrap';
+        imageModalTitle.style.maxWidth = '90%';
+        imageModalTitle.style.fontSize = '0.9rem'; // Smaller font size
+        imageModalTitle.style.padding = '0.25rem 0'; // Less vertical padding
     }
     
     // Update delete button
@@ -677,7 +686,9 @@ function showSingleImageModal(selectedUrl, filename, truncatedFilename) {
         if (spinnerDiv) spinnerDiv.remove();
         
         // Clear container and add the image
-        imageContainer.querySelector('.position-relative').appendChild(imgElement);
+        const container = imageContainer.querySelector('.position-relative');
+        container.innerHTML = ''; // Clear any existing content
+        container.appendChild(imgElement);
         
         // Trigger reflow for smoother animation
         void imgElement.offsetWidth;
@@ -754,6 +765,10 @@ function showSingleImageModal(selectedUrl, filename, truncatedFilename) {
 
     // Add handler for modal close
     imageModal.addEventListener('hidden.bs.modal', function onModalClose() {
+        // Clear the modal content
+        carouselImages.innerHTML = '';
+        
+        // Reset modal state
         isModalOpen = false;
         
         // Resume background loading after a short delay
@@ -785,7 +800,14 @@ function showVideoModal(url, filename, title = '') {
     // Set the modal title
     const modalTitle = videoModal.querySelector('.modal-title');
     if (modalTitle) {
-        modalTitle.textContent = title || filename || 'View Video';
+        modalTitle.textContent = title || truncateFilename(filename, 40);
+        modalTitle.title = filename; // Full filename on hover
+        modalTitle.style.overflow = 'hidden';
+        modalTitle.style.textOverflow = 'ellipsis';
+        modalTitle.style.whiteSpace = 'nowrap';
+        modalTitle.style.maxWidth = '90%';
+        modalTitle.style.fontSize = '0.9rem'; // Smaller font size
+        modalTitle.style.padding = '0.25rem 0'; // Less vertical padding
     }
 
     // Clear previous video
@@ -801,12 +823,12 @@ function showVideoModal(url, filename, title = '') {
     videoContainer.appendChild(video);
     
     // Add loading indicator
-                const loadingIndicator = document.createElement('div');
+    const loadingIndicator = document.createElement('div');
     loadingIndicator.className = 'position-absolute top-50 start-50 translate-middle';
-                loadingIndicator.innerHTML = `
+    loadingIndicator.innerHTML = `
         <div class="spinner-border text-light" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
+            <span class="visually-hidden">Loading...</span>
+        </div>
     `;
     videoContainer.appendChild(loadingIndicator);
     
@@ -824,6 +846,9 @@ function showVideoModal(url, filename, title = '') {
             </div>
         `;
     };
+    
+    // Update the modal buttons (add delete button)
+    updateModalButtons('videoModal', filename);
     
     // Show the modal
     const modal = new bootstrap.Modal(videoModal);
