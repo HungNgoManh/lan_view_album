@@ -10,6 +10,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@capacitor/cli": "^7.2.0",
+    "@capacitor/core": "^7.2.0",
+    "@capacitor/ios": "^7.2.0",
     "@uppy/core": "^4.4.3",
     "@uppy/dashboard": "^4.3.2",
     "@uppy/xhr-upload": "^4.3.3",

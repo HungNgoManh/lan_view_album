@@ -1,0 +1,18 @@
+{
+  "appId": "com.mycloud.app",
+  "appName": "lan_view_album",
+  "webDir": "public",
+  "bundledWebRuntime": false,
+  "ios": {
+    "contentInset": "automatic",
+    "allowsLinkPreview": true,
+    "scrollEnabled": true,
+    "backgroundColor": "#ffffff",
+    "allowMixedContent": true,
+    "limitsNavigationsToAppBoundDomains": false
+  },
+  "server": {
+    "allowNavigation": ["*"],
+    "cleartext": true
+  }
+}
