@@ -189,11 +189,11 @@ function loadGallery(filter = 'all', page = 1) {
 
     console.log(`Loading gallery with filter: ${filter}, page: ${page}`);
 
-    // Show loading spinner only on first load
-    const loadingSpinner = document.getElementById('loadingSpinner');
-    if (page === 1 && loadingSpinner) {
-        loadingSpinner.classList.remove('d-none');
-    }
+    // Do NOT show the main loading spinner anymore
+    // const loadingSpinner = document.getElementById('loadingSpinner');
+    // if (page === 1 && loadingSpinner) {
+    //    loadingSpinner.classList.remove('d-none');
+    // }
 
     // Clear existing content if this is first page
     const gallery = document.getElementById('gallery');
@@ -336,10 +336,10 @@ function loadGallery(filter = 'all', page = 1) {
             }
         })
         .finally(() => {
-            // Hide loading spinner
-            if (loadingSpinner) {
-                loadingSpinner.classList.add('d-none');
-            }
+            // No need to hide the loading spinner anymore since we don't show it
+            // if (loadingSpinner) {
+            //    loadingSpinner.classList.add('d-none');
+            // }
             
             // Re-enable filter buttons
             filterButtons.forEach(btn => btn.disabled = false);
@@ -431,7 +431,7 @@ function processGalleryData(data, gallery, page, filter) {
                 <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
                     <span class="visually-hidden">Loading...</span>
                 </div>
-                Loading files one by one...
+                Loading files...
             </div>
         `;
         gallery.appendChild(loadingMessage);
@@ -660,7 +660,6 @@ async function createFileCardAsync(fileObj) {
                             </div>
                         </div>
                         <img class="thumbnail-img" alt="${filename}">
-                        ${isVideo ? '<div class="video-duration position-absolute bottom-0 end-0 badge bg-dark m-2"></div>' : ''}
                     </div>
                 </div>`;
 
@@ -701,8 +700,6 @@ async function createFileCardAsync(fileObj) {
                             if (loadingElement) loadingElement.style.display = 'none';
                         };
                         imgElement.src = thumbnail;
-                        const durationElement = col.querySelector('.video-duration');
-                        if (durationElement) durationElement.textContent = duration;
                     });
                 }
             }
@@ -1591,7 +1588,7 @@ function updateTabLabels(counts = {}) {
     const videoTab = document.querySelector('[data-filter="video"]');
     const otherTab = document.querySelector('[data-filter="other"]');
 
-    if (allTab) allTab.textContent = `All (${mergedCounts.all})`;
+    if (allTab) allTab.textContent = `All Files (${mergedCounts.all})`;
     if (imageTab) imageTab.textContent = `Images (${mergedCounts.images})`;
     if (videoTab) videoTab.textContent = `Videos (${mergedCounts.videos})`;
     if (otherTab) otherTab.textContent = `Other (${mergedCounts.others})`;
@@ -1654,9 +1651,6 @@ function generateVideoThumbnail(url, filename, containerElement) {
             <div class="card h-100">
                 <div class="position-relative">
                     <img src="${cachedThumbnail}" class="card-img-top" loading="lazy" data-url="${url}" data-filename="${filename}">
-                    <span class="position-absolute bottom-0 end-0 badge bg-dark m-2">
-                        ${duration}
-                    </span>
                 </div>
             </div>`;
         col.querySelector('img').addEventListener('click', function() {
@@ -1915,7 +1909,6 @@ async function processFilesSequentially(files, gallery, page) {
                                 </div>
                             </div>
                             <img class="thumbnail-img" alt="${filename}">
-                            <div class="video-duration position-absolute bottom-0 end-0 badge bg-dark m-2"></div>
                         </div>
                     </div>`;
                 
@@ -1924,7 +1917,6 @@ async function processFilesSequentially(files, gallery, page) {
                 // Get elements
                 const imgElement = col.querySelector('.thumbnail-img');
                 const loadingElement = col.querySelector('.thumbnail-loading');
-                const durationElement = col.querySelector('.video-duration');
                 
                 // Set up click handler
                 col.querySelector('.thumbnail-container').onclick = () => showVideoModal(url, filename, truncateFilename(filename, 30));
@@ -1941,22 +1933,6 @@ async function processFilesSequentially(files, gallery, page) {
                     };
                     
                     imgElement.src = cachedThumbnail;
-                    
-                    // Get duration (we'll still need to get this from the video)
-                    const video = document.createElement('video');
-                    video.src = url;
-                    video.preload = 'metadata';
-                    video.onloadedmetadata = () => {
-                        const duration = Math.round(video.duration);
-                        const minutes = Math.floor(duration / 60);
-                        const seconds = duration % 60;
-                        const durationText = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-                        
-                        if (durationElement) {
-                            durationElement.textContent = durationText;
-                        }
-                    };
-                    video.load();
                 } else {
                     // Generate video thumbnail client-side
                     captureVideoFrame(url, function(thumbnail, duration) {
@@ -1976,11 +1952,6 @@ async function processFilesSequentially(files, gallery, page) {
                         };
                         
                         imgElement.src = thumbnail;
-                        
-                        // Add duration badge
-                        if (durationElement) {
-                            durationElement.textContent = duration;
-                        }
                     });
                 }
                 
@@ -2365,36 +2336,7 @@ window.addEventListener('beforeunload', saveAppState);
 document.addEventListener('DOMContentLoaded', restoreAppState);
 
 // Add this function to check for and generate server-side thumbnails
-async function getVideoThumbnail(filename) {
-    // First, check if server thumbnail exists
-    try {
-        // Try to load thumbnail from server (using a head request to check if exists)
-        const thumbnailUrl = `/thumbnails/${filename}.jpg`;
-        const response = await fetch(thumbnailUrl, { method: 'HEAD' });
-        
-        if (response.ok) {
-            // Server thumbnail exists
-            return thumbnailUrl;
-        }
-        
-        // If we get here, thumbnail doesn't exist on server, try to generate it
-        console.log(`Requesting server to generate thumbnail for ${filename}`);
-        const generateResponse = await fetch(`/generate-thumbnail/${filename}`);
-        const result = await generateResponse.json();
-        
-        if (result.success) {
-            // Server generated the thumbnail successfully
-            return result.path;
-        } else {
-            // Server failed to generate thumbnail, fall back to client-side generation
-            console.warn(`Server thumbnail generation failed for ${filename}: ${result.error}`);
-            return null;
-        }
-    } catch (error) {
-        console.warn(`Error checking/generating server thumbnail: ${error.message}`);
-        return null;
-    }
-}
+
 
 function periodicCleanup() {
     // Only run if not actively loading
