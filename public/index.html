@@ -758,6 +758,145 @@
             0% { background-position: 200% 0; }
             100% { background-position: -200% 0; }
         }
+        /* Table view styles */
+        .table {
+            background-color: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            border-collapse: separate;
+            border-spacing: 0;
+            width: 100%;
+            table-layout: fixed;
+        }
+
+        .table thead th:first-child {
+            flex: 1;
+            text-align: left;
+        }
+
+        .table thead th:last-child {
+            width: 100px;
+            flex: 0 0 100px;
+        }
+
+        .table thead tr {
+            display: flex;
+            width: 100%;
+        }
+
+        .table thead th {
+            background-color: #f8f9fa;
+            border-bottom: 2px solid #dee2e6;
+            font-weight: 600;
+            color: #495057;
+            padding: 12px 15px;
+        }
+
+        /* Size column - right aligned and fixed width */
+        .table th:last-child,
+        .table td:last-child {
+            text-align: right;
+            width: 100px;
+            position: sticky;
+            right: 0;
+            background-color: white;
+            box-shadow: -5px 0 5px -5px rgba(0,0,0,0.1);
+        }
+
+        /* Header background for the sticky column */
+        .table th:last-child {
+            background-color: #f8f9fa;
+        }
+
+        .table td {
+            border-bottom: 1px solid #dee2e6;
+            padding: 12px 15px;
+        }
+
+        /* Filename column */
+        .table td:first-child {
+            width: calc(100% - 100px);
+            max-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            padding-right: 50px;
+        }
+
+        /* Two-column layout with right column pushed to edge */
+        .table-responsive {
+            position: relative;
+            width: 100%;
+            overflow-x: hidden;
+        }
+
+        .table tr {
+            display: flex;
+            width: 100%;
+        }
+
+        .file-row:hover td {
+            background-color: #f8f9fa;
+        }
+
+        .file-row:hover td:last-child {
+            background-color: #f8f9fa;
+        }
+
+        .filename-text {
+            font-family: monospace;
+            color: #212529;
+        }
+
+        .filename-link {
+            font-family: monospace;
+            color: #007bff;
+            text-decoration: none;
+            display: block;
+            transition: color 0.2s;
+            cursor: pointer;
+        }
+
+        .filename-link:hover {
+            color: #0056b3;
+            text-decoration: underline;
+        }
+
+        /* Right align the actions column */
+        .table th:last-child,
+        .table td:last-child {
+            text-align: right;
+        }
+
+        .btn-group {
+            margin-left: auto; /* Push the button group to the right */
+        }
+
+        .btn-group .btn {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            margin: 0 2px;
+        }
+
+        .btn-group .btn i {
+            font-size: 0.875rem;
+        }
+
+        /* Responsive table */
+        @media (max-width: 768px) {
+            .table-responsive {
+                font-size: 0.875rem;
+            }
+            
+            .btn-group .btn {
+                padding: 0.2rem 0.4rem;
+            }
+            
+            .table td {
+                padding: 8px 10px;
+            }
+        }
     </style>
 </head>
 <body class="p-3">
@@ -798,7 +937,33 @@
             <span class="visually-hidden">Loading...</span>
         </div>
     </div>
-    <div id="gallery" class="row g-3">
+    <div class="container-fluid mt-3">
+        <div id="gallery" class="row">
+            <!-- Table header for All tab -->
+            <div class="col-12 d-none" id="all-files-header">
+                <div class="table-responsive">
+                    <table class="table table-hover" style="width: 100%;">
+                        <colgroup>
+                            <col>
+                            <col style="width: 100px;">
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th>Filename</th>
+                                <th style="text-align: right;">Size</th>
+                            </tr>
+                        </thead>
+                        <tbody id="all-files-body">
+                            <!-- Files will be inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <!-- Grid view for Images and Videos tabs -->
+            <div class="col-12" id="grid-view">
+                <!-- Files will be inserted here -->
+            </div>
+        </div>
     </div>
   </div>
   <div class="tab-pane fade" id="upload" role="tabpanel" aria-labelledby="upload-tab">

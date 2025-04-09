@@ -29,32 +29,65 @@ uppy.on('file-added', async (file) => {
     const data = await response.json();
     
     // Extract filenames from the response
-    // The server returns { files: [{filename, size, modified, type}, ...], ... }
     const existingFiles = data && data.files && Array.isArray(data.files) 
         ? data.files.map(file => file.filename) 
         : [];
     
     console.log(`Checking for duplicates against existing files (${existingFiles.length}/${data?.counts?.all || 'unknown'} total files):`);
     
-    if (existingFiles.includes(file.name)) {
+    // Check if a file with the same name exists
+    let isDuplicate = false;
+    existingFiles.forEach(existingFile => {
+        if (existingFile.endsWith(file.name) || existingFile === file.name) {
+            isDuplicate = true;
+        }
+    });
+    
+    if (isDuplicate) {
         // Show toast message
         const toastEl = document.getElementById('uploadToast');
         const toast = new bootstrap.Toast(toastEl);
-        document.getElementById('toastMessage').textContent = `❌ File "${file.name}" already exists.`;
+        document.getElementById('toastMessage').textContent = `⚠️ Warning: File "${file.name}" appears to be a duplicate, but will still be uploaded.`;
         toast.show();
         
-        // Remove the duplicate file
-        uppy.removeFile(file.id);
+        // Option: You can remove the file here to prevent upload
+        // uppy.removeFile(file.id);
     }
 });
 
 uppy.on('upload-success', (file, response) => {
-    console.log(`File ${file.name} uploaded successfully`);
+    console.log(`Uploaded ${file.name} successfully`);
+    
+    // Check if the server flagged this as a duplicate
+    if (response.body && response.body.isDuplicate) {
+        // Show toast message
+        const toastEl = document.getElementById('uploadToast');
+        const toast = new bootstrap.Toast(toastEl);
+        document.getElementById('toastMessage').textContent = `⚠️ File "${file.name}" was uploaded but is a duplicate of an existing file.`;
+        toast.show();
+    }
+    
+    // Reload gallery when upload completes
+    loadGallery(currentFilter, 1);
 });
 
 uppy.on('upload-error', (file, error, response) => {
     console.error(`Error uploading ${file.name}:`, error);
-    alert(`❌ Upload failed for "${file.name}": ${error}`);
+    
+    // Show toast message for upload errors
+    const toastEl = document.getElementById('uploadToast');
+    const toast = new bootstrap.Toast(toastEl);
+    
+    // Extract error message from response if available
+    let errorMessage = 'Upload failed';
+    if (response && response.message) {
+        errorMessage = response.message;
+    } else if (error && error.message) {
+        errorMessage = error.message;
+    }
+    
+    document.getElementById('toastMessage').textContent = `❌ ${errorMessage}: ${file.name}`;
+    toast.show();
 });
 
 uppy.on('complete', (result) => {
@@ -184,7 +217,7 @@ function loadGallery(filter = 'all', page = 1) {
 
     // Fetch ALL files with filter first (to get counts and total)
     // But we'll process them one by one
-    fetch(`/uploads?filter=${filter}&page=${page}&limit=22&sort=date&order=desc`)
+    fetch(`/uploads?filter=${filter}&page=${page}&limit=26&sort=date&order=desc`)
         .then(res => {
             if (!res.ok) {
                 // Special handling for 500 errors when likely due to empty category
@@ -226,7 +259,7 @@ function loadGallery(filter = 'all', page = 1) {
             if (Array.isArray(data)) {
                 // Old format: array of filenames
                 standardizedData.files = data.map(filename => ({ filename }));
-                standardizedData.hasMore = data.length >= 22;
+                standardizedData.hasMore = data.length >= 26;
             } else if (data && typeof data === 'object') {
                 // New format with potential missing properties
                 standardizedData.files = Array.isArray(data.files) ? data.files : [];
@@ -321,6 +354,8 @@ function loadGallery(filter = 'all', page = 1) {
 
 // Update processGalleryData to handle one-by-one loading
 function processGalleryData(data, gallery, page, filter) {
+    console.log(`Processing gallery data: ${data.files?.length || 0} files, page ${page}, filter ${filter}`);
+    
     // Clean up: Remove all placeholders first
     const allPlaceholders = gallery.querySelectorAll('.placeholder-thumbnail, .placeholder-row');
     allPlaceholders.forEach(placeholder => placeholder.remove());
@@ -370,21 +405,48 @@ function processGalleryData(data, gallery, page, filter) {
         
         // Update hasMore flag
         hasMore = false;
+        console.log('No more items to load');
         
         // Nothing more to process
         return Promise.resolve();
     }
     
     // Update hasMore flag based on the data
-    hasMore = data.hasMore !== undefined ? data.hasMore : data.files.length >= 22;
+    hasMore = data.hasMore !== undefined ? data.hasMore : data.files.length >= 26;
     
-    // If we have less than 22 items, we've reached the end
-    if (data.files.length < 22) {
+    // If we have less than 26 items, we've reached the end
+    if (data.files.length < 26) {
         hasMore = false;
+        console.log('Reached end of content (less than 26 items)');
+    }
+    
+    console.log(`Starting sequential processing of ${data.files.length} files`);
+    
+    // Show a message that files are loading
+    if (page === 1) {
+        const loadingMessage = document.createElement('div');
+        loadingMessage.className = 'col-12 text-center py-3 loading-message';
+        loadingMessage.innerHTML = `
+            <div class="alert alert-info">
+                <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                Loading files one by one...
+            </div>
+        `;
+        gallery.appendChild(loadingMessage);
+        
+        // Remove the message after a short delay
+        setTimeout(() => {
+            const message = gallery.querySelector('.loading-message');
+            if (message) message.remove();
+        }, 1500);
     }
     
     // Process files one by one
     return processFilesOneByOne(data.files, gallery, page).then(() => {
+        console.log(`Completed processing all ${data.files.length} files`);
+        
         // After processing files, show end message if we've reached the end
         if (!hasMore) {
             showEndOfContentMessage(gallery);
@@ -483,6 +545,12 @@ async function processFilesOneByOne(files, gallery, page) {
         
         // Log progress
         console.log(`Processed file ${i+1}/${filesWithDates.length}: ${filename}`);
+        
+        // Add a delay between processing items to make the sequential loading more visible
+        // Skip the delay for the last item
+        if (i < filesWithDates.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
     }
     
     // Return when all files are processed
@@ -491,201 +559,176 @@ async function processFilesOneByOne(files, gallery, page) {
 
 // New function to create a file card with async/await
 async function createFileCardAsync(fileObj) {
-    // Handle both old and new format
     const filename = fileObj.filename;
     const ext = filename.split('.').pop().toLowerCase();
     const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
     const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
     const url = `/uploads/${filename}`;
-    
-    // Create column element
-    const col = document.createElement('div');
-    col.className = 'col-3 mb-3 real-item';
-    col.setAttribute('data-filename', filename);
-    
-    return new Promise(async (resolve) => {
-        try {
+
+    // Format file size
+    const formatSize = (bytes) => {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    };
+
+    // Format date
+    const formatDate = (date) => {
+        return new Date(date).toLocaleString();
+    };
+
+    // Create table row for All tab
+    const createTableRow = () => {
+        const tr = document.createElement('tr');
+        tr.className = 'file-row';
+        tr.setAttribute('data-filename', filename);
+        tr.style.display = 'flex';
+        tr.style.width = '100%';
+
+        const filenameTd = document.createElement('td');
+        filenameTd.style.flex = '1';
+        filenameTd.style.overflow = 'hidden';
+        filenameTd.style.textOverflow = 'ellipsis';
+        filenameTd.style.whiteSpace = 'nowrap';
+
+        const sizeTd = document.createElement('td');
+        sizeTd.style.width = '100px';
+        sizeTd.style.flexShrink = '0';
+        sizeTd.style.textAlign = 'right';
+
+        // Format file size
+        const formatSize = (bytes) => {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        };
+
+        // Middle truncate filename
+        const truncateMiddle = (text, maxLength = 30) => {
+            if (text.length <= maxLength) return text;
+            const half = Math.floor(maxLength / 2);
+            return text.substring(0, half) + '...' + text.substring(text.length - half);
+        };
+
+        // Filename cell with middle truncation - make clickable
+        const filenameLink = document.createElement('a');
+        filenameLink.href = 'javascript:void(0)';
+        filenameLink.className = 'filename-link';
+        filenameLink.textContent = truncateMiddle(filename);
+        filenameLink.title = filename; // Show full filename on hover
+        
+        // Add click handler based on file type
+        filenameLink.onclick = () => {
             if (isImage) {
-                // Create a proper thumbnail container with loading spinner
-                const thumbnailHtml = `
-                    <div class="card h-100">
-                        <div class="thumbnail-container">
-                            <div class="thumbnail-loading">
-                                <div class="spinner-border spinner-border-sm text-primary" role="status">
-                                    <span class="visually-hidden">Loading...</span>
-                                </div>
-                            </div>
-                            <img class="thumbnail-img" alt="${filename}">
-                        </div>
-                    </div>`;
-                
-                col.innerHTML = thumbnailHtml;
-                
-                // Get the img element to set up load handling
-                const imgElement = col.querySelector('.thumbnail-img');
-                const loadingElement = col.querySelector('.thumbnail-loading');
-                
-                // Set up click handler
-                imgElement.onclick = () => showImageModal(url, filename, truncateFilename(filename, 30));
-                
-                // Check if thumbnail exists in cache
-                const cachedThumbnail = localStorage.getItem(`img_thumb_${filename}`);
-                
-                if (cachedThumbnail) {
-                    // Wait for image to load from cache
-                    await new Promise(resolveImage => {
-                        imgElement.onload = function() {
-                            imgElement.classList.add('loaded');
-                            if (loadingElement) loadingElement.style.display = 'none';
-                            resolveImage();
-                        };
-                        
-                        // Handle case where image is already cached in browser
-                        if (imgElement.complete) {
-                            imgElement.classList.add('loaded');
-                            if (loadingElement) loadingElement.style.display = 'none';
-                            resolveImage();
-                        } else {
-                            imgElement.src = cachedThumbnail;
-                        }
-                    });
-                } else {
-                    // Generate thumbnail and wait for it
-                    await new Promise(resolveThumb => {
-                        createImageThumbnail(url).then(thumbnail => {
-                            try {
-                                localStorage.setItem(`img_thumb_${filename}`, thumbnail);
-                            } catch (e) {
-                                if (e.name === 'QuotaExceededError') {
-                                    clearOldThumbnails();
-                                }
-                            }
-                            
-                            // Wait for image to load
-                            imgElement.onload = function() {
-                                imgElement.classList.add('loaded');
-                                if (loadingElement) loadingElement.style.display = 'none';
-                                resolveThumb();
-                            };
-                            
-                            imgElement.src = thumbnail;
-                        }).catch(e => {
-                            console.warn('Error generating thumbnail:', e);
-                            // Fallback to original image
-                            imgElement.src = url;
-                            if (loadingElement) loadingElement.style.display = 'none';
-                            resolveThumb();
-                        });
-                    });
-                }
+                showImageModal(url, filename);
             } else if (isVideo) {
-                // Create a thumbnail container with loading spinner
-                const thumbnailHtml = `
-                    <div class="card h-100">
-                        <div class="thumbnail-container">
-                            <div class="thumbnail-loading">
-                                <div class="spinner-border spinner-border-sm text-primary" role="status">
-                                    <span class="visually-hidden">Loading...</span>
-                                </div>
+                showVideoModal(url, filename);
+            } else {
+                // For other file types, open directly
+                window.open(url, '_blank');
+            }
+        };
+        
+        filenameTd.appendChild(filenameLink);
+
+        // Size cell
+        sizeTd.textContent = formatSize(fileObj.size);
+
+        tr.appendChild(filenameTd);
+        tr.appendChild(sizeTd);
+
+        return tr;
+    };
+
+    // Create grid card for Images and Videos tabs
+    const createGridCard = () => {
+        const col = document.createElement('div');
+        col.className = 'col-3 mb-3 real-item';
+        col.setAttribute('data-filename', filename);
+
+        if (isImage || isVideo) {
+            const thumbnailHtml = `
+                <div class="card h-100">
+                    <div class="thumbnail-container">
+                        <div class="thumbnail-loading">
+                            <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
                             </div>
-                            <img class="thumbnail-img" alt="${filename}">
-                            <div class="video-duration position-absolute bottom-0 end-0 badge bg-dark m-2"></div>
                         </div>
-                    </div>`;
-                
-                col.innerHTML = thumbnailHtml;
-                
-                // Get elements
-                const imgElement = col.querySelector('.thumbnail-img');
-                const loadingElement = col.querySelector('.thumbnail-loading');
-                const durationElement = col.querySelector('.video-duration');
-                
-                // Set up click handler
-                col.querySelector('.thumbnail-container').onclick = () => showVideoModal(url, filename, truncateFilename(filename, 30));
-                
-                // Check localStorage cache first
-                const cachedThumbnail = localStorage.getItem(`video_thumb_${filename}`);
-                const cachedDuration = localStorage.getItem(`duration_${filename}`);
-                
-                if (cachedThumbnail) {
-                    // Use cached thumbnail
-                    await new Promise(resolveCachedThumb => {
-                        imgElement.onload = function() {
+                        <img class="thumbnail-img" alt="${filename}">
+                        ${isVideo ? '<div class="video-duration position-absolute bottom-0 end-0 badge bg-dark m-2"></div>' : ''}
+                    </div>
+                </div>`;
+
+            col.innerHTML = thumbnailHtml;
+            const imgElement = col.querySelector('.thumbnail-img');
+            const loadingElement = col.querySelector('.thumbnail-loading');
+
+            if (isImage) {
+                imgElement.onclick = () => showImageModal(url, filename);
+            } else {
+                col.querySelector('.thumbnail-container').onclick = () => showVideoModal(url, filename);
+            }
+
+            // Handle thumbnail loading
+            const cachedThumbnail = localStorage.getItem(isImage ? `img_thumb_${filename}` : `video_thumb_${filename}`);
+            if (cachedThumbnail) {
+                imgElement.onload = () => {
+                    imgElement.classList.add('loaded');
+                    if (loadingElement) loadingElement.style.display = 'none';
+                };
+                imgElement.src = cachedThumbnail;
+            } else {
+                if (isImage) {
+                    createImageThumbnail(url).then(thumbnail => {
+                        safelyStoreInLocalStorage(`img_thumb_${filename}`, thumbnail);
+                        imgElement.onload = () => {
                             imgElement.classList.add('loaded');
                             if (loadingElement) loadingElement.style.display = 'none';
-                            resolveCachedThumb();
                         };
-                        
-                        imgElement.src = cachedThumbnail;
-                        
-                        // Add cached duration if available
-                        if (cachedDuration && durationElement) {
-                            durationElement.textContent = cachedDuration;
-                        }
+                        imgElement.src = thumbnail;
                     });
                 } else {
-                    // Generate video thumbnail client-side
-                    await new Promise(resolveVideoThumb => {
-                        captureVideoFrame(url, function(thumbnail, duration) {
-                            try {
-                                localStorage.setItem(`video_thumb_${filename}`, thumbnail);
-                                localStorage.setItem(`duration_${filename}`, duration);
-                            } catch (e) {
-                                if (e.name === 'QuotaExceededError') {
-                                    clearOldThumbnails();
-                                }
-                            }
-                            
-                            // Set image source to the new thumbnail
-                            imgElement.onload = function() {
-                                imgElement.classList.add('loaded');
-                                if (loadingElement) loadingElement.style.display = 'none';
-                                resolveVideoThumb();
-                            };
-                            
-                            imgElement.src = thumbnail;
-                            
-                            // Add duration badge
-                            if (durationElement) {
-                                durationElement.textContent = duration;
-                            }
-                        });
+                    captureVideoFrame(url, (thumbnail, duration) => {
+                        safelyStoreInLocalStorage(`video_thumb_${filename}`, thumbnail);
+                        safelyStoreInLocalStorage(`duration_${filename}`, duration);
+                        imgElement.onload = () => {
+                            imgElement.classList.add('loaded');
+                            if (loadingElement) loadingElement.style.display = 'none';
+                        };
+                        imgElement.src = thumbnail;
+                        const durationElement = col.querySelector('.video-duration');
+                        if (durationElement) durationElement.textContent = duration;
                     });
                 }
-            } else {
-                // Other file types (non-image, non-video)
-                const fileHtml = `
-                    <div class="card h-100">
-                        <div class="card-body text-center">
-                            <i class="bi bi-file-earmark text-muted mb-2" style="font-size: 2rem;"></i>
-                            <div class="small text-muted mb-2 text-truncate" title="${filename}">${filename}</div>
-                            <a href="${url}" download class="btn btn-primary btn-sm">
-                                <i class="bi bi-download"></i> Download
-                            </a>
-                        </div>
-                    </div>`;
-                
-                col.innerHTML = fileHtml;
             }
-            
-            // Add a small delay before resolving to ensure UI updates
-            setTimeout(() => resolve(col), 50);
-        } catch (e) {
-            console.warn('Error creating file card:', e);
-            
-            // Fallback for error cases - make sure to still resolve
+        } else {
             col.innerHTML = `
                 <div class="card h-100">
                     <div class="card-body text-center">
-                        <i class="bi bi-exclamation-triangle text-danger mb-2" style="font-size: 2rem;"></i>
+                        <i class="bi bi-file-earmark text-muted mb-2" style="font-size: 2rem;"></i>
                         <div class="small text-muted mb-2 text-truncate" title="${filename}">${filename}</div>
-                        <div class="text-danger">Error loading file</div>
+                        <a href="${url}" download class="btn btn-primary btn-sm">
+                            <i class="bi bi-download"></i> Download
+                        </a>
                     </div>
                 </div>`;
-            
-            setTimeout(() => resolve(col), 50);
         }
-    });
+
+        return col;
+    };
+
+    // Return appropriate element based on current view
+    const currentFilter = document.querySelector('.filter-tabs .active').dataset.filter;
+    if (currentFilter === 'all') {
+        return createTableRow();
+    } else {
+        return createGridCard();
+    }
 }
 
 // Update the showVideoModal function to not use server thumbnails
@@ -732,15 +775,9 @@ function showVideoModal(url, filename, title = '') {
         
         // Cache thumbnail to localStorage when video is loaded
         captureVideoFrame(url, function(thumbnail, duration) {
-            try {
-                localStorage.setItem(`video_thumb_${filename}`, thumbnail);
-                localStorage.setItem(`duration_${filename}`, duration);
-                console.log(`Video thumbnail cached for ${filename}`);
-            } catch (e) {
-                if (e.name === 'QuotaExceededError') {
-                    clearOldThumbnails();
-                }
-            }
+            safelyStoreInLocalStorage(`video_thumb_${filename}`, thumbnail);
+            safelyStoreInLocalStorage(`duration_${filename}`, duration);
+            console.log(`Video thumbnail cached for ${filename}`);
         });
     };
     
@@ -802,18 +839,40 @@ function clearOldThumbnails() {
     const totalMB = (totalBytes / 1024 / 1024).toFixed(2);
     console.log(`Thumbnail storage: ${totalMB} MB used`);
     
-    // If we have more than 150 thumbnails or are approaching localStorage limits (about 5MB),
-    // remove oldest 30% of thumbnails
-    if (thumbnailKeys.length > 150 || totalBytes > 4 * 1024 * 1024) {
+    // More aggressive cleanup - remove 50% of thumbnails if we're over threshold
+    // or remove 75% if this is an emergency cleanup (likely called after a quota error)
+    const isEmergencyCleanup = totalBytes > 3.5 * 1024 * 1024;
+    
+    if (thumbnailKeys.length > 100 || totalBytes > 2 * 1024 * 1024 || isEmergencyCleanup) {
         // Sort by timestamp (assuming filenames often have timestamps)
         thumbnailKeys.sort();
         
-        const removeCount = Math.max(Math.floor(thumbnailKeys.length * 0.3), 20);
-        console.log(`Storage cleanup: Removing ${removeCount} oldest thumbnails from localStorage`);
+        // Remove more thumbnails in emergency mode
+        const percentToRemove = isEmergencyCleanup ? 0.75 : 0.5;
+        const removeCount = Math.max(Math.floor(thumbnailKeys.length * percentToRemove), 30);
+        console.log(`Storage cleanup: ${isEmergencyCleanup ? "EMERGENCY " : ""}Removing ${removeCount} thumbnails (${percentToRemove*100}%) from localStorage`);
         
         for (let i = 0; i < removeCount; i++) {
             localStorage.removeItem(thumbnailKeys[i]);
         }
+        
+        // Also remove random thumbnails if we're in emergency mode
+        if (isEmergencyCleanup && thumbnailKeys.length > removeCount) {
+            const remainingKeys = thumbnailKeys.slice(removeCount);
+            const additionalRemoveCount = Math.min(20, remainingKeys.length);
+            
+            console.log(`Emergency cleanup: Removing ${additionalRemoveCount} additional random thumbnails`);
+            
+            // Shuffle array and take first 20 elements
+            const shuffled = remainingKeys.sort(() => 0.5 - Math.random());
+            const randomToRemove = shuffled.slice(0, additionalRemoveCount);
+            
+            randomToRemove.forEach(key => {
+                localStorage.removeItem(key);
+            });
+        }
+        
+        return true; // Return true to indicate cleaning was performed
     }
     
     // Also cleanup any duration keys without matching thumbnails
@@ -823,6 +882,8 @@ function clearOldThumbnails() {
             localStorage.removeItem(durationKey);
         }
     });
+    
+    return false; // Return false to indicate no aggressive cleaning was needed
 }
 
 // Add a new function to manage localStorage limits and cleanup
@@ -830,18 +891,63 @@ function manageLocalStorage() {
     try {
         // Calculate localStorage usage
         let totalBytes = 0;
+        let thumbnailBytes = 0;
+        let thumbnailCount = 0;
+        
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
-            totalBytes += localStorage.getItem(key).length;
+            const value = localStorage.getItem(key);
+            totalBytes += (value?.length || 0);
+            
+            // Track thumbnail-specific stats
+            if (key.startsWith('img_thumb_') || key.startsWith('video_thumb_')) {
+                thumbnailBytes += value.length;
+                thumbnailCount++;
+            }
         }
         
         const totalMB = (totalBytes / 1024 / 1024).toFixed(2);
-        console.log(`Total localStorage usage: ${totalMB} MB`);
+        const thumbnailMB = (thumbnailBytes / 1024 / 1024).toFixed(2);
         
-        // Check if we're approaching the limit (5MB for most browsers)
-        if (totalBytes > 4.5 * 1024 * 1024) {
-            console.warn('LocalStorage is nearly full, performing aggressive cleanup');
+        console.log(`Total localStorage usage: ${totalMB} MB (${thumbnailMB} MB for ${thumbnailCount} thumbnails)`);
+        
+        // Proactive cleanup if we're above certain thresholds
+        // Most browsers have 5-10MB limit, so we'll start cleaning at lower thresholds
+        if (thumbnailBytes > 2 * 1024 * 1024 || thumbnailCount > 100) {
+            console.log('Performing proactive thumbnail cleanup');
             clearOldThumbnails();
+        }
+        
+        // More aggressive cleanup if total storage is high
+        if (totalBytes > 4 * 1024 * 1024) {
+            console.warn('LocalStorage is getting full, performing aggressive cleanup');
+            clearOldThumbnails();
+            
+            // If still high, clear non-essential data
+            setTimeout(() => {
+                let stillTooHigh = false;
+                try {
+                    let checkBytes = 0;
+                    for (let i = 0; i < localStorage.length; i++) {
+                        checkBytes += (localStorage.getItem(localStorage.key(i))?.length || 0);
+                    }
+                    stillTooHigh = checkBytes > 4 * 1024 * 1024;
+                } catch (e) {
+                    stillTooHigh = true;
+                }
+                
+                if (stillTooHigh) {
+                    console.warn('Extreme cleanup: Clearing all thumbnails');
+                    for (let i = localStorage.length - 1; i >= 0; i--) {
+                        const key = localStorage.key(i);
+                        if (key && (key.startsWith('img_thumb_') || 
+                                   key.startsWith('video_thumb_') || 
+                                   key.startsWith('duration_'))) {
+                            localStorage.removeItem(key);
+                        }
+                    }
+                }
+            }, 1000);
         }
     } catch (e) {
         console.error('Error managing localStorage:', e);
@@ -1240,15 +1346,9 @@ function showVideoModal(url, filename, title = '') {
         
         // Cache thumbnail to localStorage when video is loaded
         captureVideoFrame(url, function(thumbnail, duration) {
-            try {
-                localStorage.setItem(`video_thumb_${filename}`, thumbnail);
-                localStorage.setItem(`duration_${filename}`, duration);
-                console.log(`Video thumbnail cached for ${filename}`);
-            } catch (e) {
-                if (e.name === 'QuotaExceededError') {
-                    clearOldThumbnails();
-                }
-            }
+            safelyStoreInLocalStorage(`video_thumb_${filename}`, thumbnail);
+            safelyStoreInLocalStorage(`duration_${filename}`, duration);
+            console.log(`Video thumbnail cached for ${filename}`);
         });
     };
     
@@ -2391,3 +2491,34 @@ function handleScrollDirection() {
 
 // Make sure this is outside any functions, at the global level
 window.addEventListener('scroll', handleScrollDirection);
+
+// Utility function to safely store an item in localStorage with quota handling
+function safelyStoreInLocalStorage(key, value) {
+    try {
+        localStorage.setItem(key, value);
+        return true;
+    } catch (e) {
+        if (e.name === 'QuotaExceededError') {
+            console.warn('localStorage quota exceeded, cleaning up...');
+            // Try to clean up storage
+            const cleaned = clearOldThumbnails();
+            
+            // If we did cleaning, try again
+            if (cleaned) {
+                try {
+                    localStorage.setItem(key, value);
+                    console.log('Successfully stored item after cleanup');
+                    return true;
+                } catch (retryError) {
+                    console.error('Still cannot store item after cleanup:', retryError);
+                }
+            }
+            
+            // If we get here, we couldn't store the item
+            return false;
+        } else {
+            console.error('Error storing in localStorage:', e);
+            return false;
+        }
+    }
+}
