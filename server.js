@@ -147,7 +147,7 @@ app.get('/uploads', async (req, res) => {
     try {
         const filter = req.query.filter || 'all';
         const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 20;
+        const limit = parseInt(req.query.limit) || 22;
         const checkDuplicates = req.query.checkDuplicates === 'true';
         
         const files = await fs.readdir(UPLOAD_DIR);

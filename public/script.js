@@ -100,15 +100,20 @@ function createImageThumbnail(url) {
         img.crossOrigin = 'anonymous'; // Handle CORS if necessary
         img.onload = function() {
             const canvas = document.createElement('canvas');
-            // Reduce thumbnail size to save storage space
-            const maxSize = 300;
+            // Increase thumbnail size for better quality
+            const maxSize = 400; // Increased from 300
             const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
             canvas.width = img.width * scale;
             canvas.height = img.height * scale;
             const context = canvas.getContext('2d');
             context.drawImage(img, 0, 0, canvas.width, canvas.height);
-            const dataURL = canvas.toDataURL('image/jpeg', 0.7); // Use JPEG with compression
+            // Higher quality JPEG compression
+            const dataURL = canvas.toDataURL('image/jpeg', 0.85); // Increased from 0.7
             resolve(dataURL);
+        };
+        img.onerror = function(e) {
+            console.error(`Error loading image for thumbnail: ${url}`, e);
+            resolve(null); // Resolve with null on error
         };
         img.src = url;
     });
@@ -137,7 +142,7 @@ let isModalOpen = false;
 let loadingPaused = false;
 let loadingQueue = [];
 
-// Update the loadGallery function to handle URL parameters
+// Update the loadGallery function to handle sequential loading
 function loadGallery(filter = 'all', page = 1) {
     // Prevent duplicate loading requests
     if (isLoading) {
@@ -157,15 +162,15 @@ function loadGallery(filter = 'all', page = 1) {
         loadingSpinner.classList.remove('d-none');
     }
 
-    // For first page load, replace content with placeholders
+    // Clear existing content if this is first page
     const gallery = document.getElementById('gallery');
     if (gallery && page === 1) {
         // Clear existing content completely before adding new content
         gallery.innerHTML = '';
         
-        // Add placeholders for initial load
-        const placeholders = createPlaceholderThumbnails(5);
-        gallery.appendChild(placeholders);
+        // Add a single placeholder for first item
+        const placeholder = createPlaceholderThumbnails(1);
+        gallery.appendChild(placeholder);
     }
 
     // Disable filter buttons while loading
@@ -177,8 +182,9 @@ function loadGallery(filter = 'all', page = 1) {
     newUrl.searchParams.set('filter', filter);
     window.history.pushState({}, '', newUrl);
 
-    // Fetch files with filter, pagination, and explicit sort order
-    fetch(`/uploads?filter=${filter}&page=${page}&limit=25&sort=date&order=desc`)
+    // Fetch ALL files with filter first (to get counts and total)
+    // But we'll process them one by one
+    fetch(`/uploads?filter=${filter}&page=${page}&limit=22&sort=date&order=desc`)
         .then(res => {
             if (!res.ok) {
                 // Special handling for 500 errors when likely due to empty category
@@ -220,7 +226,7 @@ function loadGallery(filter = 'all', page = 1) {
             if (Array.isArray(data)) {
                 // Old format: array of filenames
                 standardizedData.files = data.map(filename => ({ filename }));
-                standardizedData.hasMore = data.length >= 25;
+                standardizedData.hasMore = data.length >= 22;
             } else if (data && typeof data === 'object') {
                 // New format with potential missing properties
                 standardizedData.files = Array.isArray(data.files) ? data.files : [];
@@ -313,14 +319,7 @@ function loadGallery(filter = 'all', page = 1) {
         });
 }
 
-/**
- * Processes gallery data and updates the UI
- * @param {Object} data - The standardized data object
- * @param {HTMLElement} gallery - The gallery element
- * @param {number} page - The current page number
- * @param {string} filter - The current filter
- * @returns {Promise} - A promise that resolves when processing is complete
- */
+// Update processGalleryData to handle one-by-one loading
 function processGalleryData(data, gallery, page, filter) {
     // Clean up: Remove all placeholders first
     const allPlaceholders = gallery.querySelectorAll('.placeholder-thumbnail, .placeholder-row');
@@ -377,20 +376,506 @@ function processGalleryData(data, gallery, page, filter) {
     }
     
     // Update hasMore flag based on the data
-    hasMore = data.hasMore !== undefined ? data.hasMore : data.files.length >= 25;
+    hasMore = data.hasMore !== undefined ? data.hasMore : data.files.length >= 22;
     
-    // If we have less than 25 items, we've reached the end
-    if (data.files.length < 25) {
+    // If we have less than 22 items, we've reached the end
+    if (data.files.length < 22) {
         hasMore = false;
     }
     
-    // Process files with the existing function
-    return processFilesSequentially(data.files, gallery, page).then(() => {
+    // Process files one by one
+    return processFilesOneByOne(data.files, gallery, page).then(() => {
         // After processing files, show end message if we've reached the end
         if (!hasMore) {
             showEndOfContentMessage(gallery);
         }
     });
+}
+
+// New function to process files one by one
+async function processFilesOneByOne(files, gallery, page) {
+    // Get last modified dates and ensure they're sorted
+    let filesWithDates = [...files]; // Create a copy to avoid modifying original array
+    
+    // Check if we need to fetch dates (old format) or if they're already there (new format)
+    if (Array.isArray(filesWithDates) && filesWithDates.length > 0) {
+        try {
+            // If dates are missing, fetch them
+            if (!filesWithDates[0].date) {
+                console.log('Fetching file dates for sorting...');
+                filesWithDates = await Promise.all(filesWithDates.map(async fileObj => {
+                    const url = `/uploads/${fileObj.filename}`;
+                    const response = await fetch(url, { method: 'HEAD' });
+                    const lastModified = new Date(response.headers.get('last-modified'));
+                    return { ...fileObj, date: lastModified };
+                }));
+            }
+            
+            // Always sort by date in descending order, regardless of format
+            console.log('Sorting files by date (newest first)...');
+            filesWithDates.sort((a, b) => {
+                // Handle various date formats
+                const dateA = a.date instanceof Date ? a.date : new Date(a.date || a.modified || 0);
+                const dateB = b.date instanceof Date ? b.date : new Date(b.date || b.modified || 0);
+                return dateB - dateA; // Descending order (newest first)
+            });
+        } catch (error) {
+            console.warn('Error processing file dates:', error);
+            // Continue with unsorted files
+        }
+    }
+    
+    // Keep track of processed filenames to prevent duplicates
+    const processedFilenames = new Set();
+    
+    // Check for existing files in the gallery (to prevent duplicates on refresh)
+    if (page === 1) {
+        // If this is page 1, we want to clear any existing items to prevent duplicates
+        const existingItems = gallery.querySelectorAll('.real-item');
+        existingItems.forEach(item => {
+            item.remove();
+        });
+    } else {
+        // For subsequent pages, track what's already in the gallery
+        const existingItems = gallery.querySelectorAll('.real-item');
+        existingItems.forEach(item => {
+            const filename = item.getAttribute('data-filename');
+            if (filename) {
+                processedFilenames.add(filename);
+            }
+        });
+    }
+    
+    console.log(`Processing ${filesWithDates.length} files one by one...`);
+    
+    // Process each file sequentially (waiting for each to complete)
+    for (let i = 0; i < filesWithDates.length; i++) {
+        // Always add a placeholder for the next item
+        if (i < filesWithDates.length - 1) {
+            const nextPlaceholder = createPlaceholderThumbnails(1);
+            gallery.appendChild(nextPlaceholder);
+        }
+        
+        // Process current file
+        const fileObj = filesWithDates[i];
+        const filename = fileObj.filename;
+        
+        // Skip if this file has already been processed
+        if (processedFilenames.has(filename)) {
+            console.log(`Skipping duplicate file: ${filename}`);
+            continue;
+        }
+        
+        // Mark this file as processed
+        processedFilenames.add(filename);
+        
+        // Create the file card
+        const fileCard = await createFileCardAsync(fileObj);
+        
+        // Remove the placeholder
+        const placeholders = gallery.querySelectorAll('.placeholder-thumbnail');
+        if (placeholders.length > 0) {
+            placeholders[0].remove();
+        }
+        
+        // Add the file card to the gallery
+        gallery.appendChild(fileCard);
+        
+        // Log progress
+        console.log(`Processed file ${i+1}/${filesWithDates.length}: ${filename}`);
+    }
+    
+    // Return when all files are processed
+    return Promise.resolve();
+}
+
+// New function to create a file card with async/await
+async function createFileCardAsync(fileObj) {
+    // Handle both old and new format
+    const filename = fileObj.filename;
+    const ext = filename.split('.').pop().toLowerCase();
+    const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
+    const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
+    const url = `/uploads/${filename}`;
+    
+    // Create column element
+    const col = document.createElement('div');
+    col.className = 'col-3 mb-3 real-item';
+    col.setAttribute('data-filename', filename);
+    
+    return new Promise(async (resolve) => {
+        try {
+            if (isImage) {
+                // Create a proper thumbnail container with loading spinner
+                const thumbnailHtml = `
+                    <div class="card h-100">
+                        <div class="thumbnail-container">
+                            <div class="thumbnail-loading">
+                                <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                            </div>
+                            <img class="thumbnail-img" alt="${filename}">
+                        </div>
+                    </div>`;
+                
+                col.innerHTML = thumbnailHtml;
+                
+                // Get the img element to set up load handling
+                const imgElement = col.querySelector('.thumbnail-img');
+                const loadingElement = col.querySelector('.thumbnail-loading');
+                
+                // Set up click handler
+                imgElement.onclick = () => showImageModal(url, filename, truncateFilename(filename, 30));
+                
+                // Check if thumbnail exists in cache
+                const cachedThumbnail = localStorage.getItem(`img_thumb_${filename}`);
+                
+                if (cachedThumbnail) {
+                    // Wait for image to load from cache
+                    await new Promise(resolveImage => {
+                        imgElement.onload = function() {
+                            imgElement.classList.add('loaded');
+                            if (loadingElement) loadingElement.style.display = 'none';
+                            resolveImage();
+                        };
+                        
+                        // Handle case where image is already cached in browser
+                        if (imgElement.complete) {
+                            imgElement.classList.add('loaded');
+                            if (loadingElement) loadingElement.style.display = 'none';
+                            resolveImage();
+                        } else {
+                            imgElement.src = cachedThumbnail;
+                        }
+                    });
+                } else {
+                    // Generate thumbnail and wait for it
+                    await new Promise(resolveThumb => {
+                        createImageThumbnail(url).then(thumbnail => {
+                            try {
+                                localStorage.setItem(`img_thumb_${filename}`, thumbnail);
+                            } catch (e) {
+                                if (e.name === 'QuotaExceededError') {
+                                    clearOldThumbnails();
+                                }
+                            }
+                            
+                            // Wait for image to load
+                            imgElement.onload = function() {
+                                imgElement.classList.add('loaded');
+                                if (loadingElement) loadingElement.style.display = 'none';
+                                resolveThumb();
+                            };
+                            
+                            imgElement.src = thumbnail;
+                        }).catch(e => {
+                            console.warn('Error generating thumbnail:', e);
+                            // Fallback to original image
+                            imgElement.src = url;
+                            if (loadingElement) loadingElement.style.display = 'none';
+                            resolveThumb();
+                        });
+                    });
+                }
+            } else if (isVideo) {
+                // Create a thumbnail container with loading spinner
+                const thumbnailHtml = `
+                    <div class="card h-100">
+                        <div class="thumbnail-container">
+                            <div class="thumbnail-loading">
+                                <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                            </div>
+                            <img class="thumbnail-img" alt="${filename}">
+                            <div class="video-duration position-absolute bottom-0 end-0 badge bg-dark m-2"></div>
+                        </div>
+                    </div>`;
+                
+                col.innerHTML = thumbnailHtml;
+                
+                // Get elements
+                const imgElement = col.querySelector('.thumbnail-img');
+                const loadingElement = col.querySelector('.thumbnail-loading');
+                const durationElement = col.querySelector('.video-duration');
+                
+                // Set up click handler
+                col.querySelector('.thumbnail-container').onclick = () => showVideoModal(url, filename, truncateFilename(filename, 30));
+                
+                // Check localStorage cache first
+                const cachedThumbnail = localStorage.getItem(`video_thumb_${filename}`);
+                const cachedDuration = localStorage.getItem(`duration_${filename}`);
+                
+                if (cachedThumbnail) {
+                    // Use cached thumbnail
+                    await new Promise(resolveCachedThumb => {
+                        imgElement.onload = function() {
+                            imgElement.classList.add('loaded');
+                            if (loadingElement) loadingElement.style.display = 'none';
+                            resolveCachedThumb();
+                        };
+                        
+                        imgElement.src = cachedThumbnail;
+                        
+                        // Add cached duration if available
+                        if (cachedDuration && durationElement) {
+                            durationElement.textContent = cachedDuration;
+                        }
+                    });
+                } else {
+                    // Generate video thumbnail client-side
+                    await new Promise(resolveVideoThumb => {
+                        captureVideoFrame(url, function(thumbnail, duration) {
+                            try {
+                                localStorage.setItem(`video_thumb_${filename}`, thumbnail);
+                                localStorage.setItem(`duration_${filename}`, duration);
+                            } catch (e) {
+                                if (e.name === 'QuotaExceededError') {
+                                    clearOldThumbnails();
+                                }
+                            }
+                            
+                            // Set image source to the new thumbnail
+                            imgElement.onload = function() {
+                                imgElement.classList.add('loaded');
+                                if (loadingElement) loadingElement.style.display = 'none';
+                                resolveVideoThumb();
+                            };
+                            
+                            imgElement.src = thumbnail;
+                            
+                            // Add duration badge
+                            if (durationElement) {
+                                durationElement.textContent = duration;
+                            }
+                        });
+                    });
+                }
+            } else {
+                // Other file types (non-image, non-video)
+                const fileHtml = `
+                    <div class="card h-100">
+                        <div class="card-body text-center">
+                            <i class="bi bi-file-earmark text-muted mb-2" style="font-size: 2rem;"></i>
+                            <div class="small text-muted mb-2 text-truncate" title="${filename}">${filename}</div>
+                            <a href="${url}" download class="btn btn-primary btn-sm">
+                                <i class="bi bi-download"></i> Download
+                            </a>
+                        </div>
+                    </div>`;
+                
+                col.innerHTML = fileHtml;
+            }
+            
+            // Add a small delay before resolving to ensure UI updates
+            setTimeout(() => resolve(col), 50);
+        } catch (e) {
+            console.warn('Error creating file card:', e);
+            
+            // Fallback for error cases - make sure to still resolve
+            col.innerHTML = `
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="bi bi-exclamation-triangle text-danger mb-2" style="font-size: 2rem;"></i>
+                        <div class="small text-muted mb-2 text-truncate" title="${filename}">${filename}</div>
+                        <div class="text-danger">Error loading file</div>
+                    </div>
+                </div>`;
+            
+            setTimeout(() => resolve(col), 50);
+        }
+    });
+}
+
+// Update the showVideoModal function to not use server thumbnails
+function showVideoModal(url, filename, title = '') {
+    // Pause background loading operations
+    isModalOpen = true;
+    loadingPaused = true;
+    
+    // Get the modal
+    const videoModal = document.getElementById('videoModal');
+    if (!videoModal) return;
+    
+    // Set the modal title
+    const modalTitle = videoModal.querySelector('.modal-title');
+    if (modalTitle) {
+        modalTitle.textContent = title || filename || 'View Video';
+    }
+
+    // Clear previous video
+    const videoContainer = videoModal.querySelector('.video-container');
+    videoContainer.innerHTML = '';
+    
+    // Create a new video element
+    const video = document.createElement('video');
+    video.src = url;
+    video.controls = true;
+    video.autoplay = true;
+    video.className = 'w-100 h-auto';
+    videoContainer.appendChild(video);
+    
+    // Add loading indicator
+    const loadingIndicator = document.createElement('div');
+    loadingIndicator.className = 'position-absolute top-50 start-50 translate-middle';
+    loadingIndicator.innerHTML = `
+        <div class="spinner-border text-light" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    `;
+    videoContainer.appendChild(loadingIndicator);
+    
+    // Handle video loading events
+    video.onloadeddata = function() {
+        loadingIndicator.remove();
+        
+        // Cache thumbnail to localStorage when video is loaded
+        captureVideoFrame(url, function(thumbnail, duration) {
+            try {
+                localStorage.setItem(`video_thumb_${filename}`, thumbnail);
+                localStorage.setItem(`duration_${filename}`, duration);
+                console.log(`Video thumbnail cached for ${filename}`);
+            } catch (e) {
+                if (e.name === 'QuotaExceededError') {
+                    clearOldThumbnails();
+                }
+            }
+        });
+    };
+    
+    video.onerror = function() {
+        loadingIndicator.remove();
+        videoContainer.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle"></i>
+                Error loading video
+            </div>
+        `;
+    };
+    
+    // Show the modal
+    const modal = new bootstrap.Modal(videoModal);
+    modal.show();
+    
+    // Handle modal close
+    videoModal.addEventListener('hidden.bs.modal', function () {
+        // Stop the video when modal is closed
+        videoContainer.innerHTML = '';
+        
+        // Reset loading state
+        isModalOpen = false;
+        loadingPaused = false;
+        
+        // Process any queued loading operations
+        if (loadingQueue.length > 0) {
+            console.log(`Processing ${loadingQueue.length} queued loading operations`);
+            while (loadingQueue.length > 0) {
+                const operation = loadingQueue.shift();
+                operation();
+            }
+        }
+    }, { once: true });
+}
+
+// Update clearOldThumbnails to handle the new naming convention and manage storage better
+function clearOldThumbnails() {
+    const keys = Object.keys(localStorage);
+    
+    // Find all thumbnail keys - now including video_thumb_ prefix
+    const thumbnailKeys = keys.filter(key => 
+        key.startsWith('img_thumb_') || 
+        key.startsWith('video_thumb_')
+    );
+    
+    // Find all duration keys
+    const durationKeys = keys.filter(key => key.startsWith('duration_'));
+    
+    console.log(`Storage management: ${thumbnailKeys.length} thumbnails found in localStorage`);
+    
+    // Calculate total storage used by thumbnails
+    let totalBytes = 0;
+    thumbnailKeys.forEach(key => {
+        totalBytes += localStorage.getItem(key).length;
+    });
+    
+    const totalMB = (totalBytes / 1024 / 1024).toFixed(2);
+    console.log(`Thumbnail storage: ${totalMB} MB used`);
+    
+    // If we have more than 150 thumbnails or are approaching localStorage limits (about 5MB),
+    // remove oldest 30% of thumbnails
+    if (thumbnailKeys.length > 150 || totalBytes > 4 * 1024 * 1024) {
+        // Sort by timestamp (assuming filenames often have timestamps)
+        thumbnailKeys.sort();
+        
+        const removeCount = Math.max(Math.floor(thumbnailKeys.length * 0.3), 20);
+        console.log(`Storage cleanup: Removing ${removeCount} oldest thumbnails from localStorage`);
+        
+        for (let i = 0; i < removeCount; i++) {
+            localStorage.removeItem(thumbnailKeys[i]);
+        }
+    }
+    
+    // Also cleanup any duration keys without matching thumbnails
+    durationKeys.forEach(durationKey => {
+        const filename = durationKey.replace('duration_', '');
+        if (!localStorage.getItem(`video_thumb_${filename}`)) {
+            localStorage.removeItem(durationKey);
+        }
+    });
+}
+
+// Add a new function to manage localStorage limits and cleanup
+function manageLocalStorage() {
+    try {
+        // Calculate localStorage usage
+        let totalBytes = 0;
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            totalBytes += localStorage.getItem(key).length;
+        }
+        
+        const totalMB = (totalBytes / 1024 / 1024).toFixed(2);
+        console.log(`Total localStorage usage: ${totalMB} MB`);
+        
+        // Check if we're approaching the limit (5MB for most browsers)
+        if (totalBytes > 4.5 * 1024 * 1024) {
+            console.warn('LocalStorage is nearly full, performing aggressive cleanup');
+            clearOldThumbnails();
+        }
+    } catch (e) {
+        console.error('Error managing localStorage:', e);
+    }
+}
+
+// Run storage management periodically
+setInterval(manageLocalStorage, 60000); // Check every minute
+
+// Update createPlaceholderThumbnails to create a more compact version
+function createPlaceholderThumbnails(count = 1) {
+    // Create a document fragment for better performance
+    const fragment = document.createDocumentFragment();
+    
+    for (let i = 0; i < count; i++) {
+        const col = document.createElement('div');
+        col.className = 'col-3 mb-3 placeholder-thumbnail';
+        
+        col.innerHTML = `
+            <div class="card h-100">
+                <div class="position-relative" style="aspect-ratio: 1/1; background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite;">
+                    <div class="position-absolute top-50 start-50 translate-middle">
+                        <div class="spinner-border text-primary spinner-border-sm" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        fragment.appendChild(col);
+    }
+    
+    return fragment;
 }
 
 function showEndOfContentMessage(gallery) {
@@ -713,18 +1198,13 @@ function showSingleImageModal(selectedUrl, filename, truncatedFilename) {
  * Pauses background loading for better performance
  */
 function showVideoModal(url, filename, title = '') {
-    // Trigger server-side thumbnail generation if needed
-    getVideoThumbnail(filename).catch(err => {
-        console.warn('Error generating thumbnail on video view:', err);
-    });
+    // Pause background loading operations
+    isModalOpen = true;
+    loadingPaused = true;
     
     // Get the modal
     const videoModal = document.getElementById('videoModal');
     if (!videoModal) return;
-    
-    // Set loading state
-    isModalOpen = true;
-    loadingPaused = true;
     
     // Set the modal title
     const modalTitle = videoModal.querySelector('.modal-title');
@@ -757,6 +1237,19 @@ function showVideoModal(url, filename, title = '') {
     // Handle video loading events
     video.onloadeddata = function() {
         loadingIndicator.remove();
+        
+        // Cache thumbnail to localStorage when video is loaded
+        captureVideoFrame(url, function(thumbnail, duration) {
+            try {
+                localStorage.setItem(`video_thumb_${filename}`, thumbnail);
+                localStorage.setItem(`duration_${filename}`, duration);
+                console.log(`Video thumbnail cached for ${filename}`);
+            } catch (e) {
+                if (e.name === 'QuotaExceededError') {
+                    clearOldThumbnails();
+                }
+            }
+        });
     };
     
     video.onerror = function() {
@@ -922,83 +1415,50 @@ function captureVideoFrame(url, callback) {
     video.src = url;
     video.crossOrigin = 'anonymous'; // Handle CORS if necessary
     video.addEventListener('loadeddata', function() {
-        video.currentTime = 0; // Seek to the first frame
+        video.currentTime = 1; // Seek to 1 second for a better thumbnail (often first frame is black)
     });
 
     video.addEventListener('seeked', function() {
         const canvas = document.createElement('canvas');
-        // Reduce thumbnail size to save storage space
-        const maxSize = 300;
+        // Increase thumbnail size for better quality
+        const maxSize = 400; // Increased from 300
         const scale = Math.min(1, maxSize / Math.max(video.videoWidth, video.videoHeight));
         canvas.width = video.videoWidth * scale;
         canvas.height = video.videoHeight * scale;
         const context = canvas.getContext('2d');
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const dataURL = canvas.toDataURL('image/jpeg', 0.7); // Use JPEG with compression
+        // Higher quality JPEG compression
+        const dataURL = canvas.toDataURL('image/jpeg', 0.85); // Increased from 0.7
         const duration = Math.round(video.duration);
         const minutes = Math.floor(duration / 60);
         const seconds = duration % 60;
         callback(dataURL, `${minutes}:${seconds.toString().padStart(2, '0')}`);
     });
 
+    video.addEventListener('error', function(e) {
+        console.error(`Error loading video for thumbnail: ${url}`, e);
+        // Create a default thumbnail for video errors
+        const canvas = document.createElement('canvas');
+        canvas.width = 400;
+        canvas.height = 300;
+        const ctx = canvas.getContext('2d');
+        // Fill with gray background
+        ctx.fillStyle = '#eeeeee';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // Add video icon
+        ctx.fillStyle = '#999999';
+        ctx.font = 'bold 48px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('▶️', canvas.width/2, canvas.height/2);
+        // Add error text
+        ctx.font = '14px sans-serif';
+        ctx.fillText('Video preview unavailable', canvas.width/2, canvas.height/2 + 40);
+        
+        callback(canvas.toDataURL('image/jpeg', 0.85), '0:00');
+    });
+
     video.load(); // Ensure the video is loaded
-}
-
-// Update clearOldThumbnails to handle both image and video thumbnails
-function clearOldThumbnails() {
-    const keys = Object.keys(localStorage);
-    const thumbnailKeys = keys.filter(key => key.startsWith('thumb_') || key.startsWith('img_thumb_'));
-    const durationKeys = keys.filter(key => key.startsWith('duration_'));
-    
-    // Remove oldest 50% of thumbnails
-    const removeCount = Math.floor(thumbnailKeys.length / 2);
-    for (let i = 0; i < removeCount; i++) {
-        localStorage.removeItem(thumbnailKeys[i]);
-        if (durationKeys[i]) {
-            localStorage.removeItem(durationKeys[i]);
-        }
-    }
-}
-
-function createFileCard(file) {
-    const card = document.createElement('div');
-    card.className = 'col';
-
-    const cardDiv = document.createElement('div');
-    cardDiv.className = 'card h-100';
-
-    const cardBody = document.createElement('div');
-    cardBody.className = 'card-body p-0';
-
-    let mediaElement;
-    if (file.type.startsWith('image/')) {
-        mediaElement = document.createElement('img');
-        mediaElement.src = file.url;
-        mediaElement.className = 'card-img-top';
-        mediaElement.onclick = () => showImageModal(file);
-    } else if (file.type.startsWith('video/')) {
-        captureVideoFrame(file.url, function(thumbnail) {
-            mediaElement = document.createElement('img');
-            mediaElement.src = thumbnail;
-            mediaElement.className = 'card-img-top';
-            mediaElement.onclick = () => showImageModal(file);
-            cardBody.appendChild(mediaElement);
-        });
-        // Add play icon overlay
-        const playIcon = document.createElement('div');
-        playIcon.className = 'position-absolute top-50 start-50 translate-middle';
-        playIcon.innerHTML = '<i class="bi bi-play-circle-fill text-white" style="font-size: 2rem;"></i>';
-        cardBody.appendChild(playIcon);
-    } else {
-        mediaElement = document.createElement('div');
-        mediaElement.className = 'card-img-top d-flex align-items-center justify-content-center bg-light';
-        mediaElement.innerHTML = '<i class="bi bi-file-earmark" style="font-size: 2rem;"></i>';
-    }
-
-    cardBody.appendChild(mediaElement);
-    cardDiv.appendChild(cardBody);
-    card.appendChild(cardDiv);
-    return card;
 }
 
 /**
@@ -1369,17 +1829,18 @@ async function processFilesSequentially(files, gallery, page) {
                 // Set up click handler
                 col.querySelector('.thumbnail-container').onclick = () => showVideoModal(url, filename, truncateFilename(filename, 30));
                 
-                // Try to get server-side thumbnail first
-                const serverThumbnail = await getVideoThumbnail(filename);
+                // Check localStorage cache first
+                const cachedThumbnail = localStorage.getItem(`video_thumb_${filename}`);
+                const cachedDuration = localStorage.getItem(`duration_${filename}`);
                 
-                if (serverThumbnail) {
-                    // Use server-side thumbnail
+                if (cachedThumbnail) {
+                    // Use cached thumbnail
                     imgElement.onload = function() {
                         imgElement.classList.add('loaded');
                         if (loadingElement) loadingElement.style.display = 'none';
                     };
                     
-                    imgElement.src = serverThumbnail;
+                    imgElement.src = cachedThumbnail;
                     
                     // Get duration (we'll still need to get this from the video)
                     const video = document.createElement('video');
@@ -1397,50 +1858,30 @@ async function processFilesSequentially(files, gallery, page) {
                     };
                     video.load();
                 } else {
-                    // Fall back to client-side thumbnail generation
-                    // Check localStorage cache first
-                    const cachedThumbnail = localStorage.getItem(`thumb_${filename}`);
-                    const cachedDuration = localStorage.getItem(`duration_${filename}`);
-                    
-                    if (cachedThumbnail) {
-                        // Use cached thumbnail
+                    // Generate video thumbnail client-side
+                    captureVideoFrame(url, function(thumbnail, duration) {
+                        try {
+                            localStorage.setItem(`video_thumb_${filename}`, thumbnail);
+                            localStorage.setItem(`duration_${filename}`, duration);
+                        } catch (e) {
+                            if (e.name === 'QuotaExceededError') {
+                                clearOldThumbnails();
+                            }
+                        }
+                        
+                        // Set image source to the new thumbnail
                         imgElement.onload = function() {
                             imgElement.classList.add('loaded');
                             if (loadingElement) loadingElement.style.display = 'none';
                         };
                         
-                        imgElement.src = cachedThumbnail;
+                        imgElement.src = thumbnail;
                         
-                        // Add cached duration if available
-                        if (cachedDuration && durationElement) {
-                            durationElement.textContent = cachedDuration;
+                        // Add duration badge
+                        if (durationElement) {
+                            durationElement.textContent = duration;
                         }
-                    } else {
-                        // Generate video thumbnail client-side
-                        captureVideoFrame(url, function(thumbnail, duration) {
-                            try {
-                                localStorage.setItem(`thumb_${filename}`, thumbnail);
-                                localStorage.setItem(`duration_${filename}`, duration);
-                            } catch (e) {
-                                if (e.name === 'QuotaExceededError') {
-                                    clearOldThumbnails();
-                                }
-                            }
-                            
-                            // Set image source to the new thumbnail
-                            imgElement.onload = function() {
-                                imgElement.classList.add('loaded');
-                                if (loadingElement) loadingElement.style.display = 'none';
-                            };
-                            
-                            imgElement.src = thumbnail;
-                            
-                            // Add duration badge
-                            if (durationElement) {
-                                durationElement.textContent = duration;
-                            }
-                        });
-                    }
+                    });
                 }
                 
                 // Add to fragment - this is the key fix
@@ -1711,7 +2152,7 @@ function captureVideoFrameWithPause(url, filename) {
             loadingQueue.push(() => {
                 captureVideoFrame(url, (thumbnail, duration) => {
                     try {
-                        localStorage.setItem(`thumb_${filename}`, thumbnail);
+                        localStorage.setItem(`video_thumb_${filename}`, thumbnail);
                         localStorage.setItem(`duration_${filename}`, duration);
                     } catch (e) {
                         if (e.name === 'QuotaExceededError') {
@@ -1724,7 +2165,7 @@ function captureVideoFrameWithPause(url, filename) {
         } else {
             captureVideoFrame(url, (thumbnail, duration) => {
                 try {
-                    localStorage.setItem(`thumb_${filename}`, thumbnail);
+                    localStorage.setItem(`video_thumb_${filename}`, thumbnail);
                     localStorage.setItem(`duration_${filename}`, duration);
                 } catch (e) {
                     if (e.name === 'QuotaExceededError') {
@@ -1892,37 +2333,6 @@ function truncateFilename(filename, maxLength = 30) {
     }
     
     return filename;
-}
-
-/**
- * Creates a smaller set of placeholder thumbnails to show while loading content
- * @param {number} count - Number of placeholders to create
- * @returns {DocumentFragment} Fragment containing placeholder thumbnails
- */
-function createPlaceholderThumbnails(count = 5) {
-    // Create a document fragment for better performance
-    const fragment = document.createDocumentFragment();
-    
-    for (let i = 0; i < count; i++) {
-        const col = document.createElement('div');
-        col.className = 'col-3 mb-3 placeholder-thumbnail';
-        
-        col.innerHTML = `
-            <div class="card h-100">
-                <div class="position-relative" style="aspect-ratio: 1/1; background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite;">
-                    <div class="position-absolute top-50 start-50 translate-middle">
-                        <div class="spinner-border text-primary spinner-border-sm" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        fragment.appendChild(col);
-    }
-    
-    return fragment;
 }
 
 /**
