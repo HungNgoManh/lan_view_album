@@ -167,12 +167,18 @@ app.get('/uploads', async (req, res) => {
         const endIndex = page * limit;
         const paginatedFiles = filteredFiles.slice(startIndex, endIndex);
         
+        // Calculate total pages
+        const totalFiles = filteredFiles.length;
+        const totalPages = Math.ceil(totalFiles / limit);
+        
         // Always return a consistent response shape, even if the filtered list is empty
         res.json({
             files: paginatedFiles,
             counts,
             hasMore: endIndex < filteredFiles.length,
-            page
+            page,
+            totalFiles,
+            totalPages
         });
     } catch (err) {
         console.error('Error listing files:', err);
@@ -182,7 +188,9 @@ app.get('/uploads', async (req, res) => {
             files: [],
             counts: { images: 0, videos: 0, others: 0, all: 0 },
             hasMore: false,
-            page: 1
+            page: 1,
+            totalFiles: 0,
+            totalPages: 0
         });
     }
 });

@@ -160,23 +160,25 @@ function getUrlParameter(name) {
     return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
 }
 
-// Add these variables at the top of your script
-let isLoading = false;
+// Global Variables
+let currentFilter = 'all';
 let currentPage = 1;
 let hasMore = true;
-let currentFilter = 'all';
+let isLoading = false;
+let isModalOpen = false;
 let scrollTimeout = null;
+let isPaginationEnabled = true; // Controls whether to use pagination or infinite scroll
+let filesPerPage = 20; // Fixed number of files per page (4 columns × 5 rows)
+let totalFiles = 0;
+let totalPages = 0;
 
 // Add this global variable to track scroll direction
 let lastScrollTop = 0;
-
-// Add these global variables at the top of your script
-let isModalOpen = false;
 let loadingPaused = false;
 let loadingQueue = [];
 
 // Update the loadGallery function to handle sequential loading
-function loadGallery(filter = 'all', page = 1) {
+async function loadGallery(filter = 'all', page = 1) {
     // Prevent duplicate loading requests
     if (isLoading) {
         console.log(`Skipping duplicate loading request (filter: ${filter}, page: ${page})`);
@@ -186,18 +188,40 @@ function loadGallery(filter = 'all', page = 1) {
 
     // Update current filter
     currentFilter = filter;
+    currentPage = page;
+
+    // Scroll to top when changing pages
+    window.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+    });
 
     console.log(`Loading gallery with filter: ${filter}, page: ${page}`);
 
-    // Do NOT show the main loading spinner anymore
-    // const loadingSpinner = document.getElementById('loadingSpinner');
-    // if (page === 1 && loadingSpinner) {
-    //    loadingSpinner.classList.remove('d-none');
-    // }
-
-    // Clear existing content if this is first page
+    // Get the gallery element
     const gallery = document.getElementById('gallery');
-    if (gallery && page === 1) {
+    
+    // Show page loading indicator if not first page (for pagination mode)
+    if (page > 1) {
+        // Clear existing content when changing pages with pagination
+        gallery.innerHTML = '';
+        
+        // Add loading indicator
+        const loadingIndicator = document.createElement('div');
+        loadingIndicator.id = 'pageLoadingIndicator';
+        loadingIndicator.className = 'col-12 text-center py-5';
+        loadingIndicator.innerHTML = `
+            <div class="d-flex justify-content-center align-items-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading page ${page}...</span>
+                </div>
+                <span class="ms-3">Loading page ${page}...</span>
+            </div>
+        `;
+        gallery.appendChild(loadingIndicator);
+    } 
+    // Clear existing content if this is first page
+    else if (gallery && page === 1) {
         // Clear existing content completely before adding new content
         gallery.innerHTML = '';
         
@@ -213,152 +237,193 @@ function loadGallery(filter = 'all', page = 1) {
     // Update URL without reloading the page
     const newUrl = new URL(window.location);
     newUrl.searchParams.set('filter', filter);
+    newUrl.searchParams.set('page', page);
     window.history.pushState({}, '', newUrl);
 
-    // Fetch ALL files with filter first (to get counts and total)
-    // But we'll process them one by one
-    fetch(`/uploads?filter=${filter}&page=${page}&limit=26&sort=date&order=desc`)
-        .then(res => {
-            if (!res.ok) {
-                // Special handling for 500 errors when likely due to empty category
-                if (res.status === 500 && ['image', 'video', 'other'].includes(filter)) {
-                    console.warn(`Server error for filter "${filter}", treating as empty category`);
-                    // Return a mock empty response
-                    return {
-                        files: [],
-                        counts: {
-                            all: 0,
-                            images: 0,
-                            videos: 0,
-                            others: 0
-                        },
-                        hasMore: false,
-                        page: page
-                    };
-                }
-                
-                throw new Error(`HTTP error! status: ${res.status}`);
-            }
-            return res.json();
-        })
-        .then(data => {
-            // Standardize the response format
-            let standardizedData = {
-                files: [],
-                counts: {
-                    all: 0,
-                    images: 0,
-                    videos: 0,
-                    others: 0
-                },
-                hasMore: false,
-                page: page
-            };
-            
-            // Handle various response formats
-            if (Array.isArray(data)) {
-                // Old format: array of filenames
-                standardizedData.files = data.map(filename => ({ filename }));
-                standardizedData.hasMore = data.length >= 26;
-            } else if (data && typeof data === 'object') {
-                // New format with potential missing properties
-                standardizedData.files = Array.isArray(data.files) ? data.files : [];
-                standardizedData.counts = data.counts || standardizedData.counts;
-                standardizedData.hasMore = data.hasMore !== undefined ? data.hasMore : false;
-                standardizedData.page = data.page || page;
-            } else {
-                console.warn(`Unexpected response format for filter "${filter}":`, data);
+    // Set limit to 20 items per page for all tabs
+    const limit = filesPerPage;
+
+    try {
+        // Fetch files with filter and pagination
+        const res = await fetch(`/uploads?filter=${filter}&page=${page}&limit=${limit}&sort=date&order=desc`);
+        
+        if (!res.ok) {
+            // Special handling for 500 errors when likely due to empty category
+            if (res.status === 500 && ['image', 'video', 'other'].includes(filter)) {
+                console.warn(`Server error for filter "${filter}", treating as empty category`);
+                // Return a mock empty response
+                return await processGalleryData({
+                    files: [],
+                    counts: {
+                        all: 0,
+                        images: 0,
+                        videos: 0,
+                        others: 0
+                    },
+                    hasMore: false,
+                    page: page,
+                    totalFiles: 0,
+                    totalPages: 0
+                }, gallery, page, filter);
             }
             
-            // Update app state with the standardized data
-            currentPage = standardizedData.page;
-            hasMore = standardizedData.hasMore;
+            throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        
+        const data = await res.json();
+        
+        // Standardize the response format
+        let standardizedData = {
+            files: [],
+            counts: {
+                all: 0,
+                images: 0,
+                videos: 0,
+                others: 0
+            },
+            hasMore: false,
+            page: page,
+            totalFiles: 0,
+            totalPages: 0
+        };
+        
+        // Handle various response formats
+        if (Array.isArray(data)) {
+            // Old format: array of filenames
+            standardizedData.files = data.map(filename => ({ filename }));
+            standardizedData.hasMore = data.length >= limit;
+        } else if (data && typeof data === 'object') {
+            // New format with potential missing properties
+            standardizedData.files = Array.isArray(data.files) ? data.files : [];
+            standardizedData.counts = data.counts || standardizedData.counts;
+            standardizedData.hasMore = data.hasMore !== undefined ? data.hasMore : false;
+            standardizedData.page = data.page || page;
+            standardizedData.totalFiles = data.totalFiles || standardizedData.files.length;
+            standardizedData.totalPages = data.totalPages || 1;
+        } else {
+            console.warn(`Unexpected response format for filter "${filter}":`, data);
+        }
+        
+        // Update app state with the standardized data
+        currentPage = standardizedData.page;
+        hasMore = standardizedData.hasMore;
+        totalFiles = standardizedData.totalFiles;
+        totalPages = standardizedData.totalPages;
+        
+        // Update tab labels with counts
+        updateTabLabels(standardizedData.counts);
+        
+        // Process the gallery with standardized data
+        await processGalleryData(standardizedData, gallery, page, filter);
+    } catch (error) {
+        console.error('Error loading gallery:', error);
+        
+        // If it's a 500 error and we're not on the "all" filter, switch to "all"
+        if (error.message.includes('500') && filter !== 'all') {
+            console.log(`Switching to 'all' filter due to server error`);
+            showToast('warning', `Could not load ${filter} category, showing all files instead`);
             
-            // Update tab labels with counts
-            updateTabLabels(standardizedData.counts);
-            
-            // Process the gallery with standardized data
-            return processGalleryData(standardizedData, gallery, page, filter);
-        })
-        .catch(error => {
-            console.error('Error loading gallery:', error);
-            
-            // If it's a 500 error and we're not on the "all" filter, switch to "all"
-            if (error.message.includes('500') && filter !== 'all') {
-                console.log(`Switching to 'all' filter due to server error`);
-                showToast('warning', `Could not load ${filter} category, showing all files instead`);
+            // Switch to all filter after a short delay
+            setTimeout(() => {
+                currentFilter = 'all';
+                loadGallery('all', 1);
+                updateFilterButtonState('all');
                 
-                // Switch to all filter after a short delay
-                setTimeout(() => {
-                    currentFilter = 'all';
-                    loadGallery('all', 1);
-                    updateFilterButtonState('all');
-                    
-                    // Update URL
-                    const newUrl = new URL(window.location);
-                    newUrl.searchParams.set('filter', 'all');
-                    window.history.pushState({}, '', newUrl);
-                }, 500);
-                
-                return;
-            }
+                // Update URL
+                const newUrl = new URL(window.location);
+                newUrl.searchParams.set('filter', 'all');
+                newUrl.searchParams.set('page', '1');
+                window.history.pushState({}, '', newUrl);
+            }, 500);
             
-            // Remove placeholders
-            const placeholders = gallery.querySelectorAll('.placeholder-thumbnail');
-            placeholders.forEach(placeholder => placeholder.remove());
-            
-            // Show user-friendly error message
-            if (page === 1) {
-                gallery.innerHTML = `
-                    <div class="col-12 text-center py-5">
-                        <div class="alert alert-danger" role="alert">
-                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
-                            Error loading content: ${error.message}
-                        </div>
-                        <button class="btn btn-primary mt-3" onclick="loadGallery('${filter}', 1)">
-                            <i class="bi bi-arrow-clockwise me-2"></i> Try Again
-                        </button>
+            return;
+        }
+        
+        // Remove placeholders
+        const placeholders = gallery.querySelectorAll('.placeholder-thumbnail');
+        placeholders.forEach(placeholder => placeholder.remove());
+        
+        // Show user-friendly error message
+        if (page === 1) {
+            gallery.innerHTML = `
+                <div class="col-12 text-center py-5">
+                    <div class="alert alert-danger" role="alert">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                        Error loading content: ${error.message}
                     </div>
-                `;
-            } else {
-                // For subsequent pages, show error at bottom
-                const errorDiv = document.createElement('div');
-                errorDiv.className = 'col-12 text-center py-3';
-                errorDiv.innerHTML = `
-                    <div class="alert alert-warning">
-                        Failed to load more items. 
-                        <button class="btn btn-sm btn-outline-primary ms-2" onclick="loadGallery('${filter}', ${page})">
-                            Try Again
-                        </button>
-                    </div>
-                `;
-                gallery.appendChild(errorDiv);
+                    <button class="btn btn-primary mt-3" onclick="loadGallery('${filter}', 1)">
+                        <i class="bi bi-arrow-clockwise me-2"></i> Try Again
+                    </button>
+                </div>
+            `;
+        } else {
+            // For subsequent pages, show error at bottom
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'col-12 text-center py-3';
+            errorDiv.innerHTML = `
+                <div class="alert alert-warning">
+                    Failed to load more items. 
+                    <button class="btn btn-sm btn-outline-primary ms-2" onclick="loadGallery('${filter}', ${page})">
+                        Try Again
+                    </button>
+                </div>
+            `;
+            gallery.appendChild(errorDiv);
+        }
+    } finally {
+        // Make sure we remove the loading indicator
+        const pageLoadingIndicator = document.getElementById('pageLoadingIndicator');
+        if (pageLoadingIndicator) {
+            pageLoadingIndicator.remove();
+        }
+        
+        // Re-enable filter buttons
+        filterButtons.forEach(btn => btn.disabled = false);
+        
+        // Reset loading flag
+        isLoading = false;
+        
+        // Ensure the correct filter button is active
+        updateFilterButtonState(filter);
+        
+        // Render pagination for all tabs
+        // Clear existing pagination first to prevent stale DOM references
+        const paginationContainer = document.getElementById('paginationContainer');
+        const paginationWrapper = paginationContainer?.closest('.d-flex');
+        
+        if (paginationContainer) {
+            paginationContainer.innerHTML = '';
+            
+            // Also remove any pagination info elements
+            const existingInfo = paginationWrapper?.querySelector('.pagination-info');
+            if (existingInfo) {
+                existingInfo.remove();
             }
-        })
-        .finally(() => {
-            // No need to hide the loading spinner anymore since we don't show it
-            // if (loadingSpinner) {
-            //    loadingSpinner.classList.add('d-none');
-            // }
             
-            // Re-enable filter buttons
-            filterButtons.forEach(btn => btn.disabled = false);
+            // Make sure the container is visible
+            if (paginationWrapper) {
+                paginationWrapper.classList.remove('d-none');
+            }
             
-            // Reset loading flag
-            isLoading = false;
-            
-            // Ensure the correct filter button is active
-            updateFilterButtonState(filter);
-        });
+            // Now render the pagination
+            renderPagination(totalPages, currentPage, filter);
+        }
+    }
 }
 
 // Update processGalleryData to handle one-by-one loading
-function processGalleryData(data, gallery, page, filter) {
-    console.log(`Processing gallery data: ${data.files?.length || 0} files, page ${page}, filter ${filter}`);
+async function processGalleryData(data, gallery, page, filter) {
+    console.log(`Processing gallery data: ${data.files?.length || 0} files, page ${page}, filter ${filter}, total files: ${data.totalFiles}, total pages: ${data.totalPages}`);
     
     // Clean up: Remove all placeholders first
     const allPlaceholders = gallery.querySelectorAll('.placeholder-thumbnail, .placeholder-row');
     allPlaceholders.forEach(placeholder => placeholder.remove());
+    
+    // Remove page loading indicator if it exists (for pagination)
+    const pageLoadingIndicator = document.getElementById('pageLoadingIndicator');
+    if (pageLoadingIndicator) {
+        pageLoadingIndicator.remove();
+    }
     
     // Check if there are no files to display
     if (!data.files || data.files.length === 0) {
@@ -412,46 +477,238 @@ function processGalleryData(data, gallery, page, filter) {
     }
     
     // Update hasMore flag based on the data
-    hasMore = data.hasMore !== undefined ? data.hasMore : data.files.length >= 26;
-    
-    // If we have less than 26 items, we've reached the end
-    if (data.files.length < 26) {
-        hasMore = false;
-        console.log('Reached end of content (less than 26 items)');
-    }
+    hasMore = data.hasMore !== undefined ? data.hasMore : data.files.length >= filesPerPage;
     
     console.log(`Starting sequential processing of ${data.files.length} files`);
     
-    // Show a message that files are loading
+    // Keep track of processed filenames to prevent duplicates
+    const processedFilenames = new Set();
+    
+    // Check for existing files in the gallery (to prevent duplicates on refresh)
     if (page === 1) {
-        const loadingMessage = document.createElement('div');
-        loadingMessage.className = 'col-12 text-center py-3 loading-message';
-        loadingMessage.innerHTML = `
-            <div class="alert alert-info">
-                <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-                Loading files...
-            </div>
-        `;
-        gallery.appendChild(loadingMessage);
-        
-        // Remove the message after a short delay
-        setTimeout(() => {
-            const message = gallery.querySelector('.loading-message');
-            if (message) message.remove();
-        }, 1500);
+        // If this is page 1, we want to clear any existing items to prevent duplicates
+        const existingItems = gallery.querySelectorAll('.real-item');
+        existingItems.forEach(item => {
+            item.remove();
+        });
+    } else {
+        // For subsequent pages, track what's already in the gallery
+        const existingItems = gallery.querySelectorAll('.real-item');
+        existingItems.forEach(item => {
+            const filename = item.getAttribute('data-filename');
+            if (filename) {
+                processedFilenames.add(filename);
+            }
+        });
     }
     
-    // Process files one by one
-    return processFilesOneByOne(data.files, gallery, page).then(() => {
-        console.log(`Completed processing all ${data.files.length} files`);
+    // Process files in batches rather than one by one for better performance
+    const batchSize = 5; // Process 5 files at once
+    
+    for (let i = 0; i < data.files.length; i += batchSize) {
+        // Get the current batch of files
+        const batch = data.files.slice(i, i + batchSize);
         
-        // After processing files, show end message if we've reached the end
-        if (!hasMore) {
-            showEndOfContentMessage(gallery);
+        // Process the batch in parallel
+        await Promise.all(batch.map(async (fileObj) => {
+            const filename = fileObj.filename;
+            
+            // Skip if this file has already been processed
+            if (processedFilenames.has(filename)) {
+                return;
+            }
+            
+            // Mark this file as processed
+            processedFilenames.add(filename);
+            
+            // Create the file card
+            const fileCard = await createFileCardAsync(fileObj);
+            
+            // Add the file card to the gallery
+            gallery.appendChild(fileCard);
+        }));
+        
+        // No need for artificial delay between batches for better performance
+    }
+    
+    // Remove all remaining placeholders
+    const remainingPlaceholders = gallery.querySelectorAll('.placeholder-thumbnail');
+    remainingPlaceholders.forEach(placeholder => placeholder.remove());
+    
+    // Return when all files are processed
+    return Promise.resolve();
+}
+
+// Function to render pagination links
+function renderPagination(totalPages, currentPage, filter) {
+    const paginationContainer = document.getElementById('paginationContainer');
+    if (!paginationContainer) return;
+    
+    // Make sure the container is visible
+    const paginationWrapper = paginationContainer.closest('.d-flex');
+    if (paginationWrapper) {
+        paginationWrapper.classList.remove('d-none');
+    }
+    
+    // Clear existing pagination
+    paginationContainer.innerHTML = '';
+    
+    // If no pages or just one page, hide pagination
+    if (!totalPages || totalPages <= 1) {
+        if (paginationWrapper) {
+            paginationWrapper.classList.add('d-none');
         }
-    });
+        return;
+    }
+    
+    // Create pagination info text
+    const startItem = (currentPage - 1) * filesPerPage + 1;
+    const endItem = Math.min(currentPage * filesPerPage, totalFiles);
+    
+    // Add "Previous" button
+    const prevLi = document.createElement('li');
+    prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
+    prevLi.innerHTML = `
+        <a class="page-link" href="#" aria-label="Previous" 
+           ${currentPage !== 1 ? `onclick="loadGallery('${filter}', ${currentPage - 1}); return false;"` : ''}>
+            <span aria-hidden="true">&laquo;</span>
+        </a>
+    `;
+    paginationContainer.appendChild(prevLi);
+    
+    // Determine which page numbers to show
+    let startPage = Math.max(1, currentPage - 2);
+    let endPage = Math.min(totalPages, startPage + 4);
+    
+    // On mobile, show fewer page numbers
+    const isMobile = window.innerWidth < 576;
+    if (isMobile) {
+        startPage = Math.max(1, currentPage - 1);
+        endPage = Math.min(totalPages, startPage + 2);
+    }
+    
+    // Adjust if we're near the end
+    if (endPage - startPage < (isMobile ? 2 : 4)) {
+        startPage = Math.max(1, endPage - (isMobile ? 2 : 4));
+    }
+    
+    // Add first page if needed
+    if (startPage > 1) {
+        const firstLi = document.createElement('li');
+        firstLi.className = 'page-item';
+        firstLi.innerHTML = `
+            <a class="page-link" href="#" onclick="loadGallery('${filter}', 1); return false;">1</a>
+        `;
+        paginationContainer.appendChild(firstLi);
+        
+        // Add ellipsis if needed
+        if (startPage > 2) {
+            const ellipsisLi = document.createElement('li');
+            ellipsisLi.className = 'page-item ellipsis disabled';
+            ellipsisLi.innerHTML = '<span class="page-link">...</span>';
+            paginationContainer.appendChild(ellipsisLi);
+        }
+    }
+    
+    // Add page numbers
+    for (let i = startPage; i <= endPage; i++) {
+        const pageLi = document.createElement('li');
+        pageLi.className = `page-item ${i === currentPage ? 'active' : ''}`;
+        pageLi.innerHTML = `
+            <a class="page-link" href="#" 
+               ${i !== currentPage ? `onclick="loadGallery('${filter}', ${i}); return false;"` : ''}>
+                ${i}
+            </a>
+        `;
+        paginationContainer.appendChild(pageLi);
+    }
+    
+    // Add last page if needed
+    if (endPage < totalPages) {
+        // Add ellipsis if needed
+        if (endPage < totalPages - 1) {
+            const ellipsisLi = document.createElement('li');
+            ellipsisLi.className = 'page-item ellipsis disabled';
+            ellipsisLi.innerHTML = '<span class="page-link">...</span>';
+            paginationContainer.appendChild(ellipsisLi);
+        }
+        
+        const lastLi = document.createElement('li');
+        lastLi.className = 'page-item';
+        lastLi.innerHTML = `
+            <a class="page-link" href="#" onclick="loadGallery('${filter}', ${totalPages}); return false;">${totalPages}</a>
+        `;
+        paginationContainer.appendChild(lastLi);
+    }
+    
+    // Add "Next" button
+    const nextLi = document.createElement('li');
+    nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
+    nextLi.innerHTML = `
+        <a class="page-link" href="#" aria-label="Next" 
+           ${currentPage !== totalPages ? `onclick="loadGallery('${filter}', ${currentPage + 1}); return false;"` : ''}>
+            <span aria-hidden="true">&raquo;</span>
+        </a>
+    `;
+    paginationContainer.appendChild(nextLi);
+    
+    // Add pagination info above the pagination
+    const paginationInfo = document.createElement('div');
+    paginationInfo.className = 'pagination-info mb-2';
+    paginationInfo.textContent = `Showing ${startItem}-${endItem} of ${totalFiles} files`;
+    
+    // Insert before pagination - Fix the insertBefore error
+    if (paginationWrapper) {
+        // First, remove any existing pagination info to prevent duplicates
+        const existingInfo = paginationWrapper.querySelector('.pagination-info');
+        if (existingInfo) {
+            existingInfo.remove();
+        }
+        
+        // Only try to insert if paginationContainer is still a child of paginationWrapper
+        if (paginationContainer.parentNode === paginationWrapper) {
+            paginationWrapper.insertBefore(paginationInfo, paginationContainer);
+        } else {
+            // If the container relationship has changed, just append it
+            paginationWrapper.appendChild(paginationInfo);
+        }
+    }
+}
+
+/**
+ * Updates the tab labels with file counts
+ * @param {Object} counts - Object containing file counts by type
+ */
+function updateTabLabels(counts = {}) {
+    const defaultCounts = {
+        all: 0,
+        images: 0,
+        videos: 0,
+        others: 0
+    };
+    
+    // Merge with defaults to ensure all properties exist
+    const mergedCounts = {...defaultCounts, ...counts};
+    
+    // If all individual counts are 0 but 'all' is not, calculate it
+    if (mergedCounts.images === 0 && mergedCounts.videos === 0 && mergedCounts.others === 0 && mergedCounts.all > 0) {
+        // This might happen if the server only provided the 'all' count
+        console.warn('Individual counts are 0 but total is not, counts might be incomplete');
+    } else if (mergedCounts.all === 0) {
+        // If 'all' is 0, calculate it from the sum of individuals
+        mergedCounts.all = mergedCounts.images + mergedCounts.videos + mergedCounts.others;
+    }
+    
+    // Update the tab labels
+    const allTab = document.querySelector('[data-filter="all"]');
+    const imageTab = document.querySelector('[data-filter="image"]');
+    const videoTab = document.querySelector('[data-filter="video"]');
+    const otherTab = document.querySelector('[data-filter="other"]');
+
+    if (allTab) allTab.textContent = `All Files (${mergedCounts.all})`;
+    if (imageTab) imageTab.textContent = `Images (${mergedCounts.images})`;
+    if (videoTab) videoTab.textContent = `Videos (${mergedCounts.videos})`;
+    if (otherTab) otherTab.textContent = `Other (${mergedCounts.others})`;
 }
 
 // New function to process files one by one
@@ -510,48 +767,38 @@ async function processFilesOneByOne(files, gallery, page) {
     
     console.log(`Processing ${filesWithDates.length} files one by one...`);
     
-    // Process each file sequentially (waiting for each to complete)
-    for (let i = 0; i < filesWithDates.length; i++) {
-        // Always add a placeholder for the next item
-        if (i < filesWithDates.length - 1) {
-            const nextPlaceholder = createPlaceholderThumbnails(1);
-            gallery.appendChild(nextPlaceholder);
-        }
+    // Process files in batches rather than one by one for better performance
+    const batchSize = 5; // Process 5 files at once
+    
+    for (let i = 0; i < filesWithDates.length; i += batchSize) {
+        // Get the current batch of files
+        const batch = filesWithDates.slice(i, i + batchSize);
         
-        // Process current file
-        const fileObj = filesWithDates[i];
-        const filename = fileObj.filename;
+        // Process the batch in parallel
+        await Promise.all(batch.map(async (fileObj) => {
+            const filename = fileObj.filename;
+            
+            // Skip if this file has already been processed
+            if (processedFilenames.has(filename)) {
+                return;
+            }
+            
+            // Mark this file as processed
+            processedFilenames.add(filename);
+            
+            // Create the file card
+            const fileCard = await createFileCardAsync(fileObj);
+            
+            // Add the file card to the gallery
+            gallery.appendChild(fileCard);
+        }));
         
-        // Skip if this file has already been processed
-        if (processedFilenames.has(filename)) {
-            console.log(`Skipping duplicate file: ${filename}`);
-            continue;
-        }
-        
-        // Mark this file as processed
-        processedFilenames.add(filename);
-        
-        // Create the file card
-        const fileCard = await createFileCardAsync(fileObj);
-        
-        // Remove the placeholder
-        const placeholders = gallery.querySelectorAll('.placeholder-thumbnail');
-        if (placeholders.length > 0) {
-            placeholders[0].remove();
-        }
-        
-        // Add the file card to the gallery
-        gallery.appendChild(fileCard);
-        
-        // Log progress
-        console.log(`Processed file ${i+1}/${filesWithDates.length}: ${filename}`);
-        
-        // Add a delay between processing items to make the sequential loading more visible
-        // Skip the delay for the last item
-        if (i < filesWithDates.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
+        // No need for artificial delay between batches for better performance
     }
+    
+    // Remove all remaining placeholders
+    const remainingPlaceholders = gallery.querySelectorAll('.placeholder-thumbnail');
+    remainingPlaceholders.forEach(placeholder => placeholder.remove());
     
     // Return when all files are processed
     return Promise.resolve();
@@ -595,62 +842,71 @@ async function createFileCardAsync(fileObj) {
 
         const sizeTd = document.createElement('td');
         sizeTd.style.width = '100px';
-        sizeTd.style.flexShrink = '0';
         sizeTd.style.textAlign = 'right';
 
-        // Format file size
-        const formatSize = (bytes) => {
-            if (bytes === 0) return '0 Bytes';
-            const k = 1024;
-            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-        };
+        // Format size
+        const formattedSize = formatSize(fileObj.size || 0);
 
-        // Middle truncate filename
-        const truncateMiddle = (text, maxLength = 30) => {
-            if (text.length <= maxLength) return text;
-            const half = Math.floor(maxLength / 2);
-            return text.substring(0, half) + '...' + text.substring(text.length - half);
-        };
+        // Format truncated filename
+        const formattedFilename = truncateFilename(filename, 60);
 
-        // Filename cell with middle truncation - make clickable
-        const filenameLink = document.createElement('a');
-        filenameLink.href = 'javascript:void(0)';
-        filenameLink.className = 'filename-link';
-        filenameLink.textContent = truncateMiddle(filename);
-        filenameLink.title = filename; // Show full filename on hover
-        
-        // Add click handler based on file type
-        filenameLink.onclick = () => {
-            if (isImage) {
+        // Determine file icon and action
+        if (isImage) {
+            const fileLink = document.createElement('a');
+            fileLink.className = 'filename-link';
+            fileLink.textContent = formattedFilename;
+            fileLink.href = '#';
+            fileLink.title = filename;
+            fileLink.onclick = (e) => {
+                e.preventDefault();
                 showImageModal(url, filename);
-            } else if (isVideo) {
+                return false;
+            };
+            filenameTd.appendChild(fileLink);
+        } else if (isVideo) {
+            const fileLink = document.createElement('a');
+            fileLink.className = 'filename-link';
+            fileLink.textContent = formattedFilename;
+            fileLink.href = '#';
+            fileLink.title = filename;
+            fileLink.onclick = (e) => {
+                e.preventDefault();
                 showVideoModal(url, filename);
-            } else {
-                // For other file types, open directly
-                window.open(url, '_blank');
-            }
-        };
-        
-        filenameTd.appendChild(filenameLink);
+                return false;
+            };
+            filenameTd.appendChild(fileLink);
+        } else {
+            // Create a download link for other files
+            const fileLink = document.createElement('a');
+            fileLink.className = 'filename-link';
+            fileLink.textContent = formattedFilename;
+            fileLink.href = url;
+            fileLink.title = filename;
+            fileLink.download = filename;
+            filenameTd.appendChild(fileLink);
+        }
 
-        // Size cell
-        sizeTd.textContent = formatSize(fileObj.size);
+        // Display size
+        sizeTd.textContent = formattedSize;
 
+        // Append cells to row
         tr.appendChild(filenameTd);
         tr.appendChild(sizeTd);
 
         return tr;
     };
 
-    // Create grid card for Images and Videos tabs
+    // Create grid card for image/video tabs
     const createGridCard = () => {
         const col = document.createElement('div');
         col.className = 'col-3 mb-3 real-item';
         col.setAttribute('data-filename', filename);
 
-        if (isImage || isVideo) {
+        if (isImage) {
+            // Check for cached thumbnail
+            const cachedThumbnail = localStorage.getItem(`img_thumb_${filename}`);
+
+            // Create a proper thumbnail container with loading spinner
             const thumbnailHtml = `
                 <div class="card h-100">
                     <div class="thumbnail-container">
@@ -662,19 +918,16 @@ async function createFileCardAsync(fileObj) {
                         <img class="thumbnail-img" alt="${filename}">
                     </div>
                 </div>`;
-
             col.innerHTML = thumbnailHtml;
+
+            // Get the img element to set up load handling
             const imgElement = col.querySelector('.thumbnail-img');
             const loadingElement = col.querySelector('.thumbnail-loading');
 
-            if (isImage) {
-                imgElement.onclick = () => showImageModal(url, filename);
-            } else {
-                col.querySelector('.thumbnail-container').onclick = () => showVideoModal(url, filename);
-            }
+            // Set up click handler
+            imgElement.onclick = () => showImageModal(url, filename, truncateFilename(filename, 30));
 
-            // Handle thumbnail loading
-            const cachedThumbnail = localStorage.getItem(isImage ? `img_thumb_${filename}` : `video_thumb_${filename}`);
+            // If cached thumbnail exists, use it
             if (cachedThumbnail) {
                 imgElement.onload = () => {
                     imgElement.classList.add('loaded');
@@ -682,26 +935,56 @@ async function createFileCardAsync(fileObj) {
                 };
                 imgElement.src = cachedThumbnail;
             } else {
-                if (isImage) {
-                    createImageThumbnail(url).then(thumbnail => {
-                        safelyStoreInLocalStorage(`img_thumb_${filename}`, thumbnail);
-                        imgElement.onload = () => {
-                            imgElement.classList.add('loaded');
-                            if (loadingElement) loadingElement.style.display = 'none';
-                        };
-                        imgElement.src = thumbnail;
-                    });
-                } else {
-                    captureVideoFrame(url, (thumbnail, duration) => {
-                        safelyStoreInLocalStorage(`video_thumb_${filename}`, thumbnail);
-                        safelyStoreInLocalStorage(`duration_${filename}`, duration);
-                        imgElement.onload = () => {
-                            imgElement.classList.add('loaded');
-                            if (loadingElement) loadingElement.style.display = 'none';
-                        };
-                        imgElement.src = thumbnail;
-                    });
-                }
+                // Otherwise, load from server and cache
+                imgElement.onload = () => {
+                    imgElement.classList.add('loaded');
+                    if (loadingElement) loadingElement.style.display = 'none';
+                    // Cache thumbnail
+                    safelyStoreInLocalStorage(`img_thumb_${filename}`, imgElement.src);
+                };
+                imgElement.src = `${url}?thumb=1`;
+            }
+        } else if (isVideo) {
+            // Set up video card with cached or generated thumbnail
+            const cachedThumbnail = localStorage.getItem(`video_thumb_${filename}`);
+            const videoHtml = `
+                <div class="card h-100">
+                    <div class="thumbnail-container">
+                        <div class="thumbnail-loading">
+                            <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                        <img class="thumbnail-img" alt="${filename}">
+                        <div class="video-icon">▶️</div>
+                    </div>
+                </div>`;
+            col.innerHTML = videoHtml;
+
+            // Get elements
+            const imgElement = col.querySelector('.thumbnail-img');
+            const loadingElement = col.querySelector('.thumbnail-loading');
+
+            // Set up click handler
+            col.querySelector('.thumbnail-container').onclick = () => showVideoModal(url, filename, truncateFilename(filename, 30));
+
+            // If we have a cached thumbnail, use it
+            if (cachedThumbnail) {
+                imgElement.onload = () => {
+                    imgElement.classList.add('loaded');
+                    if (loadingElement) loadingElement.style.display = 'none';
+                };
+                imgElement.src = cachedThumbnail;
+            } else {
+                captureVideoFrame(url, (thumbnail, duration) => {
+                    safelyStoreInLocalStorage(`video_thumb_${filename}`, thumbnail);
+                    safelyStoreInLocalStorage(`duration_${filename}`, duration);
+                    imgElement.onload = () => {
+                        imgElement.classList.add('loaded');
+                        if (loadingElement) loadingElement.style.display = 'none';
+                    };
+                    imgElement.src = thumbnail;
+                });
             }
         } else {
             col.innerHTML = `
@@ -1447,7 +1730,7 @@ document.addEventListener('DOMContentLoaded', function() {
             filterButtons.forEach(btn => btn.classList.remove('active'));
             this.classList.add('active');
             
-            // Load gallery with this filter
+            // Load gallery with this filter, always start at page 1 when changing filters
             loadGallery(targetFilter, 1);
         });
     });
@@ -1460,15 +1743,24 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Use URL parameter first, then saved state
     const urlFilter = getUrlParameter('filter');
+    const urlPage = parseInt(getUrlParameter('page')) || 1;
     const savedState = localStorage.getItem('appState');
     let initialFilter = 'all';
+    let initialPage = 1;
 
     if (urlFilter) {
         initialFilter = urlFilter;
+        if (urlPage) {
+            initialPage = urlPage;
+        }
     } else if (savedState) {
         try {
             const state = JSON.parse(savedState);
             initialFilter = state.currentFilter || 'all';
+            // Only use saved page for 'all' filter with pagination
+            if (initialFilter === 'all' && isPaginationEnabled) {
+                initialPage = state.currentPage || 1;
+            }
         } catch (e) {
             console.warn('Could not parse saved state', e);
         }
@@ -1478,8 +1770,8 @@ document.addEventListener('DOMContentLoaded', function() {
     updateFilterButtonState(initialFilter);
     
     // Load gallery only once
-    console.log(`Initial load with filter: ${initialFilter}`);
-    loadGallery(initialFilter, 1);
+    console.log(`Initial load with filter: ${initialFilter}, page: ${initialPage}`);
+    loadGallery(initialFilter, initialPage);
     
     // Add Back to Top button
     addBackToTopButton();
@@ -1497,16 +1789,21 @@ document.addEventListener('DOMContentLoaded', function() {
     window.addEventListener('scroll', handleScrollDirection);
 });
 
-// Add this function to handle loading indicator clicks
+// Function to handle loading indicator clicks
 function handleLoadingIndicatorClick(event) {
     if (event.target.closest('.gallery-loading-indicator') || 
         event.target.closest('.scroll-loading-indicator')) {
         const indicator = event.target.closest('.gallery-loading-indicator') || 
-                         event.target.closest('.scroll-loading-indicator');
+                          event.target.closest('.scroll-loading-indicator');
         indicator.remove();
     }
 }
 
+/**
+ * Captures a frame from a video URL and returns it as a data URL
+ * @param {string} url - The URL of the video
+ * @param {Function} callback - Callback function that receives the thumbnail and duration
+ */
 function captureVideoFrame(url, callback) {
     const video = document.createElement('video');
     video.src = url;
@@ -1556,113 +1853,6 @@ function captureVideoFrame(url, callback) {
     });
 
     video.load(); // Ensure the video is loaded
-}
-
-/**
- * Updates the tab labels with file counts
- * @param {Object} counts - Object containing file counts by type
- */
-function updateTabLabels(counts = {}) {
-    const defaultCounts = {
-        all: 0,
-        images: 0,
-        videos: 0,
-        others: 0
-    };
-    
-    // Merge with defaults to ensure all properties exist
-    const mergedCounts = {...defaultCounts, ...counts};
-    
-    // If all individual counts are 0 but 'all' is not, calculate it
-    if (mergedCounts.images === 0 && mergedCounts.videos === 0 && mergedCounts.others === 0 && mergedCounts.all > 0) {
-        // This might happen if the server only provided the 'all' count
-        console.warn('Individual counts are 0 but total is not, counts might be incomplete');
-    } else if (mergedCounts.all === 0) {
-        // If 'all' is 0, calculate it from the sum of individuals
-        mergedCounts.all = mergedCounts.images + mergedCounts.videos + mergedCounts.others;
-    }
-    
-    // Update the tab labels
-    const allTab = document.querySelector('[data-filter="all"]');
-    const imageTab = document.querySelector('[data-filter="image"]');
-    const videoTab = document.querySelector('[data-filter="video"]');
-    const otherTab = document.querySelector('[data-filter="other"]');
-
-    if (allTab) allTab.textContent = `All Files (${mergedCounts.all})`;
-    if (imageTab) imageTab.textContent = `Images (${mergedCounts.images})`;
-    if (videoTab) videoTab.textContent = `Videos (${mergedCounts.videos})`;
-    if (otherTab) otherTab.textContent = `Other (${mergedCounts.others})`;
-}
-
-// Add these variables at the top of your script.js file
-let lazyLoadObserver;
-
-/**
- * Initialize lazy loading with Intersection Observer
- */
-function initLazyLoading() {
-    // Get all images with the loading="lazy" attribute
-    const lazyImages = document.querySelectorAll('img[loading="lazy"]');
-    
-    // If IntersectionObserver is available, use it
-    if ('IntersectionObserver' in window) {
-        const imageObserver = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    const img = entry.target;
-                    // Add a class for fade-in effect
-                    img.classList.add('fade-in');
-                    // Stop observing the image
-                    imageObserver.unobserve(img);
-                }
-            });
-        }, {
-            rootMargin: '200px', // Start loading images when they're 200px from viewport
-            threshold: 0.1
-        });
-        
-        lazyImages.forEach(img => {
-            imageObserver.observe(img);
-        });
-    }
-}
-
-function generateVideoThumbnail(url, filename, containerElement) {
-    captureVideoFrame(url, function(thumbnail, duration) {
-        try {
-            // Try to cache the thumbnail and duration
-            localStorage.setItem(`thumb_${filename}`, thumbnail);
-            localStorage.setItem(`duration_${filename}`, duration);
-        } catch (e) {
-            // If storage is full, clear old thumbnails and try again
-            if (e.name === 'QuotaExceededError') {
-                clearOldThumbnails();
-                try {
-                    localStorage.setItem(`thumb_${filename}`, thumbnail);
-                    localStorage.setItem(`duration_${filename}`, duration);
-                } catch (e2) {
-                    console.warn('Failed to cache thumbnail:', e2);
-                }
-            }
-        }
-        
-        // Replace the placeholder with the actual thumbnail
-        containerElement.innerHTML = `
-            <div class="card h-100">
-                <div class="position-relative">
-                    <img src="${cachedThumbnail}" class="card-img-top" loading="lazy" data-url="${url}" data-filename="${filename}">
-                </div>
-            </div>`;
-        col.querySelector('img').addEventListener('click', function() {
-            const url = this.getAttribute('data-url');
-            const filename = this.getAttribute('data-filename');
-            if (url && filename) {
-                showImageModal(url, filename);
-            } else {
-                console.error('Missing URL or filename for clicked image');
-            }
-        });
-    });
 }
 
 // Back to Top button function
@@ -2310,7 +2500,24 @@ function restoreAppState(loadContent = true) {
             
             // Use URL parameter first, then saved state
             const urlFilter = getUrlParameter('filter');
+            const urlPage = parseInt(getUrlParameter('page')) || 1;
+            
             currentFilter = urlFilter || state.currentFilter || 'all';
+            
+            // Determine which page to use
+            if (urlFilter && urlPage) {
+                // Use URL parameters if both are provided
+                currentPage = urlPage;
+            } else if (urlFilter) {
+                // If only filter is provided in URL, start at page 1
+                currentPage = 1;
+            } else if (currentFilter === 'all' && isPaginationEnabled && state.currentPage) {
+                // Use saved page for 'all' filter with pagination enabled
+                currentPage = state.currentPage;
+            } else {
+                // Default to page 1
+                currentPage = 1;
+            }
             
             // Update UI to match
             updateFilterButtonState(currentFilter);
@@ -2318,10 +2525,10 @@ function restoreAppState(loadContent = true) {
             // Only load gallery if explicitly requested
             // This prevents double-loading during initialization
             if (loadContent) {
-                console.log(`Restoring gallery with filter: ${currentFilter}`);
-                loadGallery(currentFilter, 1);
+                console.log(`Restoring gallery with filter: ${currentFilter}, page: ${currentPage}`);
+                loadGallery(currentFilter, currentPage);
             } else {
-                console.log(`Updated filter state to: ${currentFilter} (without loading content)`);
+                console.log(`Updated filter state to: ${currentFilter}, page: ${currentPage} (without loading content)`);
             }
         }
     } catch (e) {
@@ -2381,8 +2588,16 @@ function truncateFilename(filename, maxLength = 30) {
  * Handles scroll events for infinite loading
  */
 function handleScroll() {
+    // Disable infinite scrolling since we're using pagination for all tabs
+    return;
+    
+    // The code below is kept for reference but is no longer used
+    
     // Skip processing if a modal is open or loading is already in progress
     if (isModalOpen || isLoading) return;
+    
+    // Skip if we're using pagination for the current filter
+    if (isPaginationEnabled && currentFilter === 'all') return;
 
     // Clear existing timeout
     if (scrollTimeout) {

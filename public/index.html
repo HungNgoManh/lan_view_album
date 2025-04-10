@@ -753,6 +753,50 @@
             0% { background-position: 200% 0; }
             100% { background-position: -200% 0; }
         }
+        
+        /* Pagination styles */
+        .pagination {
+            margin: 0;
+        }
+        .pagination .page-item .page-link {
+            color: #007bff;
+            border-color: #dee2e6;
+            border-radius: 4px;
+            margin: 0 3px;
+            transition: all 0.2s ease;
+        }
+        .pagination .page-item.active .page-link {
+            background-color: #007bff;
+            border-color: #007bff;
+            color: white;
+            box-shadow: 0 2px 5px rgba(0, 123, 255, 0.3);
+        }
+        .pagination .page-item .page-link:hover {
+            background-color: #e9ecef;
+            border-color: #dee2e6;
+            color: #0056b3;
+        }
+        .pagination .page-item.active .page-link:hover {
+            background-color: #0069d9;
+            border-color: #0062cc;
+            color: white;
+        }
+        .pagination .page-item.disabled .page-link {
+            color: #6c757d;
+            pointer-events: none;
+            background-color: #fff;
+            border-color: #dee2e6;
+        }
+        .pagination-info {
+            color: #6c757d;
+            margin-bottom: 0.5rem;
+            text-align: center;
+        }
+        .pagination .page-item.ellipsis .page-link {
+            background-color: transparent;
+            border: none;
+        }
+        
         /* Table view styles */
         .table {
             background-color: white;
@@ -900,6 +944,59 @@
             width: 1.5rem;
             height: 1.5rem;
         }
+
+        /* Add these styles for better mobile responsiveness */
+        @media (max-width: 576px) {
+            .thumbnail-container {
+                aspect-ratio: 1/1;
+                height: auto;
+            }
+            
+            .card {
+                margin-bottom: 0.5rem;
+            }
+            
+            .card-body {
+                padding: 0.25rem;
+            }
+            
+            .pagination .page-link {
+                padding: 0.25rem 0.4rem;
+                font-size: 0.75rem;
+                margin: 0 1px;
+            }
+            
+            .pagination-info {
+                font-size: 0.75rem;
+            }
+            
+            .col-3 {
+                flex: 0 0 25% !important;
+                max-width: 25% !important;
+                padding-right: 4px;
+                padding-left: 4px;
+            }
+            
+            .row {
+                margin-right: -4px;
+                margin-left: -4px;
+            }
+            
+            /* Hide filename on very small screens */
+            .position-absolute.bottom-0.start-0.end-0.p-2 {
+                padding: 0.1rem 0.2rem !important;
+                font-size: 0.6rem;
+                background-color: rgba(0, 0, 0, 0.7) !important;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+        }
+        /* Force 4 columns on all screen sizes */
+        .col-3 {
+            flex: 0 0 25% !important;
+            max-width: 25% !important;
+        }
     </style>
 </head>
 <body class="p-3">
@@ -936,7 +1033,7 @@
     <!-- Gallery -->
     <!-- Loading spinner removed -->
     <div class="container-fluid mt-3">
-        <div id="gallery" class="row">
+        <div id="gallery" class="row" style="min-height: 500px;">
             <!-- Table header for All tab -->
             <div class="col-12 d-none" id="all-files-header">
                 <div class="table-responsive">
@@ -961,6 +1058,15 @@
             <div class="col-12" id="grid-view">
                 <!-- Files will be inserted here -->
             </div>
+        </div>
+        
+        <!-- Pagination -->
+        <div class="d-flex justify-content-center mt-4 mb-3">
+            <nav aria-label="Page navigation">
+                <ul class="pagination" id="paginationContainer">
+                    <!-- Pagination links will be inserted here -->
+                </ul>
+            </nav>
         </div>
     </div>
   </div>
