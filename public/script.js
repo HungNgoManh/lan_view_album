@@ -18,53 +18,155 @@ const uppy = new Uppy.Uppy({ restrictions: { maxNumberOfFiles: 1000 } })
     .use(Uppy.XHRUpload, {
         endpoint: '/upload',
         fieldName: 'file',
-        bundle: false
+        bundle: false,
+        headers: () => {
+            return {
+                'device-id': getOrCreateDeviceId()
+            }
+        }
     });
+
+// Generate or retrieve a device ID for the current device
+function getOrCreateDeviceId() {
+    let deviceId = localStorage.getItem('device_id');
+    
+    if (!deviceId) {
+        // Create a device ID based on browser fingerprint
+        const userAgent = navigator.userAgent;
+        const screenWidth = window.screen.width;
+        const screenHeight = window.screen.height;
+        const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const language = navigator.language;
+        
+        // Create a simple hash of these values
+        const deviceSignature = `${userAgent}-${screenWidth}x${screenHeight}-${timeZone}-${language}`;
+        
+        // Create a simplified hash
+        let hash = 0;
+        for (let i = 0; i < deviceSignature.length; i++) {
+            const char = deviceSignature.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32bit integer
+        }
+        
+        // Create a user-readable prefix
+        const prefix = 'device';
+        
+        // Combine into final ID
+        deviceId = `${prefix}_${Math.abs(hash).toString(16).substring(0, 8)}`;
+        
+        // Save for future use
+        localStorage.setItem('device_id', deviceId);
+        console.log(`Created new device ID: ${deviceId}`);
+    }
+    
+    return deviceId;
+}
+
+// Track duplicate files for summary
+let skippedDuplicateFiles = 0;
 
 uppy.on('file-added', async (file) => {
     console.log(`Added file: ${file.name} (${file.size} bytes)`);
 
     // Check for duplicate files - get ALL files without pagination
-    const response = await fetch('/uploads?checkDuplicates=true');
-    const data = await response.json();
-    
-    // Extract filenames from the response
-    const existingFiles = data && data.files && Array.isArray(data.files) 
-        ? data.files.map(file => file.filename) 
-        : [];
-    
-    console.log(`Checking for duplicates against existing files (${existingFiles.length}/${data?.counts?.all || 'unknown'} total files):`);
-    
-    // Check if a file with the same name exists
-    let isDuplicate = false;
-    existingFiles.forEach(existingFile => {
-        if (existingFile.endsWith(file.name) || existingFile === file.name) {
-            isDuplicate = true;
-        }
-    });
-    
-    if (isDuplicate) {
-        // Show toast message
-        const toastEl = document.getElementById('uploadToast');
-        const toast = new bootstrap.Toast(toastEl);
-        document.getElementById('toastMessage').textContent = `⚠️ Warning: File "${file.name}" appears to be a duplicate, but will still be uploaded.`;
-        toast.show();
+    try {
+        const response = await fetch('/uploads?checkDuplicates=true');
+        const data = await response.json();
         
-        // Option: You can remove the file here to prevent upload
-        // uppy.removeFile(file.id);
+        // Extract filenames from the response
+        const existingFiles = data && data.files && Array.isArray(data.files) 
+            ? data.files.map(file => file.filename) 
+            : [];
+        
+        console.log(`Checking for duplicates against existing files (${existingFiles.length}/${data?.counts?.all || 'unknown'} total files)`);
+        console.log('Current file being checked:', file.name);
+        
+        // Get the device ID that will be used - same as what the server will use
+        const deviceId = getOrCreateDeviceId();
+        // What the filename would be when uploaded (same format as server would create)
+        const potentialServerFilename = `${deviceId}_${file.name}`;
+        console.log(`Potential server filename would be: ${potentialServerFilename}`);
+        
+        // Check if a file with the same name exists
+        let isDuplicate = false;
+        let duplicateFilename = '';
+        
+        // First check if the exact same filename exists (including device ID)
+        if (existingFiles.includes(potentialServerFilename)) {
+            console.log(`Found exact match for potential filename: ${potentialServerFilename}`);
+            isDuplicate = true;
+            duplicateFilename = potentialServerFilename;
+        } else {
+            // Otherwise check each file by extracting the original name
+            for (const existingFile of existingFiles) {
+                // Extract original filename part by finding the first underscore
+                // This handles deviceId_filename.ext format properly
+                const firstUnderscoreIndex = existingFile.indexOf('_');
+                
+                // If there's no underscore, compare the whole filename
+                if (firstUnderscoreIndex === -1) {
+                    console.log(`Comparing with file without underscore: "${existingFile}" vs "${file.name}"`);
+                    if (existingFile === file.name) {
+                        isDuplicate = true;
+                        duplicateFilename = existingFile;
+                        console.log(`Duplicate found! No underscore case: "${existingFile}" matches "${file.name}"`);
+                        break;
+                    }
+                } else {
+                    // Extract the part after the first underscore which should be the original filename
+                    const existingOriginalName = existingFile.substring(firstUnderscoreIndex + 1);
+                    console.log(`Comparing: "${existingOriginalName}" (from "${existingFile}") vs "${file.name}"`);
+                    
+                    // Compare with the file being uploaded
+                    if (existingOriginalName === file.name) {
+                        isDuplicate = true;
+                        duplicateFilename = existingFile;
+                        console.log(`Duplicate found! "${existingOriginalName}" matches "${file.name}"`);
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if (isDuplicate) {
+            // Increment the counter for skipped files
+            skippedDuplicateFiles++;
+            
+            // Show toast message
+            const toastEl = document.getElementById('uploadToast');
+            const toast = new bootstrap.Toast(toastEl);
+            document.getElementById('toastMessage').textContent = `⚠️ Skipping file "${file.name}" as it already exists on server as "${duplicateFilename}"`;
+            toast.show();
+            
+            // Remove the file from Uppy to prevent upload
+            uppy.removeFile(file.id);
+            console.log(`Removed duplicate file "${file.name}" from upload queue`);
+            
+            return; // Exit early as we removed the file
+        } else {
+            console.log(`No duplicates found for "${file.name}", proceeding with upload`);
+        }
+    } catch (error) {
+        console.warn('Error checking for duplicates:', error);
+        // Continue with upload even if duplicate check fails
     }
 });
 
 uppy.on('upload-success', (file, response) => {
-    console.log(`Uploaded ${file.name} successfully`);
+    console.log(`Uploaded ${file.name} successfully`, response.body);
     
     // Check if the server flagged this as a duplicate
     if (response.body && response.body.isDuplicate) {
+        console.log(`Server flagged ${file.name} as a duplicate!`, response.body);
+        
         // Show toast message
         const toastEl = document.getElementById('uploadToast');
         const toast = new bootstrap.Toast(toastEl);
         document.getElementById('toastMessage').textContent = `⚠️ File "${file.name}" was uploaded but is a duplicate of an existing file.`;
         toast.show();
+    } else {
+        console.log(`Server did not flag ${file.name} as a duplicate`, response.body);
     }
     
     // Reload gallery when upload completes
@@ -72,7 +174,7 @@ uppy.on('upload-success', (file, response) => {
 });
 
 uppy.on('upload-error', (file, error, response) => {
-    console.error(`Error uploading ${file.name}:`, error);
+    console.error(`Error uploading ${file.name}:`, error, response);
     
     // Show toast message for upload errors
     const toastEl = document.getElementById('uploadToast');
@@ -80,25 +182,62 @@ uppy.on('upload-error', (file, error, response) => {
     
     // Extract error message from response if available
     let errorMessage = 'Upload failed';
-    if (response && response.message) {
-        errorMessage = response.message;
+    let isDuplicate = false;
+    
+    if (response) {
+        if (response.body && response.body.message) {
+            errorMessage = response.body.message;
+        }
+        if (response.body && response.body.isDuplicate) {
+            isDuplicate = true;
+        }
     } else if (error && error.message) {
         errorMessage = error.message;
     }
     
-    document.getElementById('toastMessage').textContent = `❌ ${errorMessage}: ${file.name}`;
+    // Use a specific icon for duplicate error
+    const icon = isDuplicate ? '⚠️' : '❌';
+    document.getElementById('toastMessage').textContent = `${icon} ${errorMessage}: ${file.name}`;
+    
+    // If this is a duplicate, increment the counter
+    if (isDuplicate) {
+        skippedDuplicateFiles++;
+    }
+    
     toast.show();
 });
 
 uppy.on('complete', (result) => {
-    if (result.successful.length > 0) {
+    // Reset the counter when upload is complete
+    const skippedFiles = skippedDuplicateFiles;
+    skippedDuplicateFiles = 0;
+    
+    if (result.successful.length > 0 || skippedFiles > 0) {
         // Show toast message for successful upload
         const toastEl = document.getElementById('uploadToast');
         const toast = new bootstrap.Toast(toastEl);
-        document.getElementById('toastMessage').textContent = '✅ Upload complete!';
+        
+        // Create a detailed message showing uploaded and skipped files
+        let message = '';
+        if (result.successful.length > 0) {
+            message += `✅ ${result.successful.length} file(s) uploaded successfully! `;
+        }
+        if (skippedFiles > 0) {
+            message += `⚠️ ${skippedFiles} duplicate file(s) were skipped.`;
+        }
+        
+        document.getElementById('toastMessage').textContent = message;
         toast.show();
 
-        loadGallery();
+        // Force a fresh reload of the gallery with the current filter and page 1
+        // This ensures new files appear at the top when sorted by date
+        console.log("Upload complete - reloading gallery to show new files at top");
+        
+        // Clear any cached data that might prevent seeing new uploads
+        hasMore = true; // Reset hasMore flag
+        
+        // Force reload current filter from page 1
+        loadGallery(currentFilter, 1);
         
         // Clear all files from Uppy Dashboard
         uppy.cancelAll();
@@ -234,14 +373,18 @@ async function loadGallery(filter = 'all', page = 1) {
     const limit = filesPerPage;
 
     try {
-        // Fetch files with filter and pagination
-        const res = await fetch(`/uploads?filter=${filter}&page=${page}&limit=${limit}&sort=date&order=desc`);
+        // Fetch files with filter and pagination - explicitly request server-side sorting
+        const sortParam = 'date';
+        const orderParam = 'desc'; // desc = newest first
+        console.log(`Requesting sorted data: sort=${sortParam}, order=${orderParam}`);
         
-            if (!res.ok) {
-                // Special handling for 500 errors when likely due to empty category
-                if (res.status === 500 && ['image', 'video', 'other'].includes(filter)) {
-                    console.warn(`Server error for filter "${filter}", treating as empty category`);
-                    // Return a mock empty response
+        const res = await fetch(`/uploads?filter=${filter}&page=${page}&limit=${limit}&sort=${sortParam}&order=${orderParam}`);
+        
+        if (!res.ok) {
+            // Special handling for 500 errors when likely due to empty category
+            if (res.status === 500 && ['image', 'video', 'other'].includes(filter)) {
+                console.warn(`Server error for filter "${filter}", treating as empty category`);
+                // Return a mock empty response
                 return await processGalleryData({
                         files: [],
                         counts: {
@@ -255,10 +398,10 @@ async function loadGallery(filter = 'all', page = 1) {
                     totalFiles: 0,
                     totalPages: 0
                 }, gallery, page, filter);
-                }
-                
-                throw new Error(`HTTP error! status: ${res.status}`);
             }
+            
+            throw new Error(`HTTP error! status: ${res.status}`);
+        }
         
         const data = await res.json();
         
@@ -404,6 +547,18 @@ async function loadGallery(filter = 'all', page = 1) {
 // Update processGalleryData to handle one-by-one loading
 async function processGalleryData(data, gallery, page, filter) {
     console.log(`Processing gallery data: ${data.files?.length || 0} files, page ${page}, filter ${filter}, total files: ${data.totalFiles}, total pages: ${data.totalPages}`);
+    
+    // Debug: Check if files have date information for sorting
+    if (data.files && data.files.length > 0) {
+        const hasDateInfo = data.files.some(file => file.date || file.modified);
+        console.log(`Files have date information: ${hasDateInfo}`);
+        
+        // Log the first few files to check their date format
+        console.log("Sample files with dates:");
+        data.files.slice(0, 3).forEach((file, index) => {
+            console.log(`File ${index+1}: ${file.filename}, Date: ${file.date || file.modified || 'No date'}`);
+        });
+    }
     
     // Clean up: Remove all placeholders first
     const allPlaceholders = gallery.querySelectorAll('.placeholder-thumbnail, .placeholder-row');
@@ -1570,6 +1725,8 @@ function cleanupPlaceholders() {
  * Respects loading pauses for better performance during modal viewing
  */
 async function processFilesSequentially(files, gallery, page) {
+    console.log(`Beginning sequential processing for ${files.length} files`);
+    
     // Get last modified dates and ensure they're sorted
     let filesWithDates = [...files]; // Create a copy to avoid modifying original array
     
@@ -1577,23 +1734,63 @@ async function processFilesSequentially(files, gallery, page) {
     if (Array.isArray(filesWithDates) && filesWithDates.length > 0) {
         try {
             // If dates are missing, fetch them
-            if (!filesWithDates[0].date) {
-                console.log('Fetching file dates for sorting...');
+            const missingDates = !filesWithDates[0].date && !filesWithDates[0].modified;
+            if (missingDates) {
+                console.log('Dates missing - fetching file dates for sorting...');
                 filesWithDates = await Promise.all(filesWithDates.map(async fileObj => {
                     const url = `/uploads/${fileObj.filename}`;
-                    const response = await fetch(url, { method: 'HEAD' });
-                    const lastModified = new Date(response.headers.get('last-modified'));
-                    return { ...fileObj, date: lastModified };
+                    try {
+                        const response = await fetch(url, { method: 'HEAD' });
+                        const lastModified = response.headers.get('last-modified');
+                        console.log(`Got date for ${fileObj.filename}: ${lastModified}`);
+                        return { 
+                            ...fileObj, 
+                            date: lastModified ? new Date(lastModified) : new Date(0)
+                        };
+                    } catch (err) {
+                        console.warn(`Failed to get date for ${fileObj.filename}:`, err);
+                        return { ...fileObj, date: new Date(0) };
+                    }
                 }));
+            } else {
+                console.log('Files already have date information');
             }
             
             // Always sort by date in descending order, regardless of format
             console.log('Sorting files by date (newest first)...');
             filesWithDates.sort((a, b) => {
                 // Handle various date formats
-                const dateA = a.date instanceof Date ? a.date : new Date(a.date || a.modified || 0);
-                const dateB = b.date instanceof Date ? b.date : new Date(b.date || b.modified || 0);
+                let dateA, dateB;
+                
+                // Try to parse dates in different formats
+                if (a.date instanceof Date) {
+                    dateA = a.date;
+                } else if (a.date) {
+                    dateA = new Date(a.date);
+                } else if (a.modified) {
+                    dateA = new Date(a.modified);
+                } else {
+                    dateA = new Date(0); // Default to epoch
+                }
+                
+                if (b.date instanceof Date) {
+                    dateB = b.date;
+                } else if (b.date) {
+                    dateB = new Date(b.date);
+                } else if (b.modified) {
+                    dateB = new Date(b.modified);
+                } else {
+                    dateB = new Date(0); // Default to epoch
+                }
+                
                 return dateB - dateA; // Descending order (newest first)
+            });
+            
+            // Log first few sorted files
+            console.log("First few files after sorting:");
+            filesWithDates.slice(0, 3).forEach((file, index) => {
+                const dateObj = file.date instanceof Date ? file.date : new Date(file.date || file.modified || 0);
+                console.log(`${index+1}: ${file.filename} - ${dateObj.toISOString()}`);
             });
         } catch (error) {
             console.warn('Error processing file dates:', error);
@@ -1625,202 +1822,41 @@ async function processFilesSequentially(files, gallery, page) {
         });
     }
     
-    // Process each file with awareness of loading pauses
-    for (let i = 0; i < filesWithDates.length; i++) {
-        // If loading is paused, wait for it to resume
-        if (loadingPaused) {
-            // Create a promise that resolves when loading resumes
-            await new Promise(resolve => {
-                loadingQueue.push(() => {
-                    resolve(); // Resume processing when queue is processed
-                });
-            });
-        }
+    // Process files in batches rather than one by one for better performance
+    const batchSize = 5; // Process 5 files at once
+    
+    for (let i = 0; i < filesWithDates.length; i += batchSize) {
+        // Get the current batch of files
+        const batch = filesWithDates.slice(i, i + batchSize);
         
-        const fileObj = filesWithDates[i];
-        
-        // Handle both old and new format
-        const filename = fileObj.filename;
-        
-        // Skip if this file has already been processed
-        if (processedFilenames.has(filename)) {
-            console.log(`Skipping duplicate file: ${filename}`);
-            continue;
-        }
-        
-        // Mark this file as processed
-        processedFilenames.add(filename);
-        
-        const ext = filename.split('.').pop().toLowerCase();
-        const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
-        const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
-        const url = `/uploads/${filename}`;
-        
-        // Process the file based on type
-        const col = document.createElement('div');
-        col.className = 'col-lg-3 real-item';
-        col.setAttribute('data-filename', filename);
-        
-        if (isImage) {
-            try {
-                // Create a proper thumbnail container with loading spinner
-                const thumbnailHtml = `
-                    <div class="card h-100">
-                        <div class="thumbnail-container">
-                            <div class="thumbnail-loading">
-                                <div class="spinner-border spinner-border-sm text-primary" role="status">
-                                    <span class="visually-hidden">Loading...</span>
-                                </div>
-                            </div>
-                            <img class="thumbnail-img" alt="${filename}">
-                        </div>
-                    </div>`;
-                
-                col.innerHTML = thumbnailHtml;
-                
-                // Get the img element to set up load handling
-                const imgElement = col.querySelector('.thumbnail-img');
-                const loadingElement = col.querySelector('.thumbnail-loading');
-                
-                // Set up click handler
-                imgElement.onclick = () => showImageModal(url, filename, truncateFilename(filename, 30));
-                
-                // Check if thumbnail exists in cache
-                const cachedThumbnail = localStorage.getItem(`img_thumb_${filename}`);
-                
-                if (cachedThumbnail) {
-                    // Use cached thumbnail, but still show spinner until loaded
-                    imgElement.onload = function() {
-                        imgElement.classList.add('loaded');
-                        if (loadingElement) loadingElement.style.display = 'none';
-                    };
-                    
-                    imgElement.src = cachedThumbnail;
-                    
-                    // Handle case where image is already cached in browser
-                    if (imgElement.complete) {
-                        imgElement.classList.add('loaded');
-                        if (loadingElement) loadingElement.style.display = 'none';
-                    }
-                } else {
-                    // No cached thumbnail, generate one
-                    createImageThumbnail(url).then(thumbnail => {
-                        try {
-                            localStorage.setItem(`img_thumb_${filename}`, thumbnail);
-                        } catch (e) {
-                            if (e.name === 'QuotaExceededError') {
-                                clearOldThumbnails();
-                            }
-                        }
-                        
-                        // Set image source to the new thumbnail
-                        imgElement.onload = function() {
-                            imgElement.classList.add('loaded');
-                            if (loadingElement) loadingElement.style.display = 'none';
-                        };
-                        
-                        imgElement.src = thumbnail;
-                    }).catch(e => {
-                        console.warn('Error generating thumbnail:', e);
-                        // Fallback to original image
-                        imgElement.src = url;
-                        if (loadingElement) loadingElement.style.display = 'none';
-                    });
-                }
-                
-                // Add to fragment - this is the key fix
-                fragment.appendChild(col);
-            } catch (e) {
-                console.warn('Error handling image thumbnail:', e);
-                // Fallback for error cases - make sure to still add to fragment
-                col.innerHTML = `
-                    <div class="card h-100">
-                        <img src="${url}" class="card-img-top" loading="lazy" onclick="showImageModal('${url}')">
-                    </div>`;
-                fragment.appendChild(col);
-            }
-        } else if (isVideo) {
-            try {
-                // Create a thumbnail container with loading spinner
-                const thumbnailHtml = `
-                    <div class="card h-100">
-                        <div class="thumbnail-container">
-                            <div class="thumbnail-loading">
-                                <div class="spinner-border spinner-border-sm text-primary" role="status">
-                                    <span class="visually-hidden">Loading...</span>
-                                </div>
-                            </div>
-                            <img class="thumbnail-img" alt="${filename}">
-                        </div>
-                    </div>`;
-                
-                col.innerHTML = thumbnailHtml;
-                
-                // Get elements
-                const imgElement = col.querySelector('.thumbnail-img');
-                const loadingElement = col.querySelector('.thumbnail-loading');
-                
-                // Set up click handler
-                col.querySelector('.thumbnail-container').onclick = () => showVideoModal(url, filename, truncateFilename(filename, 30));
-                
-                // Check localStorage cache first
-                const cachedThumbnail = localStorage.getItem(`video_thumb_${filename}`);
-                
-                if (cachedThumbnail) {
-                    // Use cached thumbnail
-                    imgElement.onload = function() {
-                        imgElement.classList.add('loaded');
-                        if (loadingElement) loadingElement.style.display = 'none';
-                    };
-                    
-                    imgElement.src = cachedThumbnail;
-                } else {
-                    // Use the new queue system instead of directly calling captureVideoFrame
-                    queueVideoThumbnail(url, filename, imgElement, loadingElement);
-                }
-                
-                // Add to fragment - this is the key fix
-                fragment.appendChild(col);
-            } catch (e) {
-                console.warn('Error handling video thumbnail:', e);
-                // Fallback for error cases - make sure to still add to fragment
-                col.innerHTML = `
-                    <div class="card h-100">
-                        <div class="position-relative">
-                            <div class="card-img-top bg-dark text-white d-flex align-items-center justify-content-center" style="height: 200px;">
-                                <i class="bi bi-play-circle-fill" style="font-size: 2rem;"></i>
-                            </div>
-                        </div>
-                    </div>`;
-                fragment.appendChild(col);
-            }
-        } else {
-            // Other file types (non-image, non-video)
-            const fileHtml = `
-                <div class="card h-100">
-                    <div class="card-body text-center">
-                        <i class="bi bi-file-earmark text-muted mb-2" style="font-size: 2rem;"></i>
-                        <div class="small text-muted mb-2 text-truncate" title="${filename}">${filename}</div>
-                        <a href="${url}" download class="btn btn-primary btn-sm">
-                            <i class="bi bi-download"></i> Download
-                        </a>
-                    </div>
-                </div>`;
+        // Process the batch in parallel
+        await Promise.all(batch.map(async (fileObj) => {
+            const filename = fileObj.filename;
             
-            col.innerHTML = fileHtml;
-            fragment.appendChild(col);
-        }
+            // Skip if this file has already been processed
+            if (processedFilenames.has(filename)) {
+                return;
+            }
+            
+            // Mark this file as processed
+            processedFilenames.add(filename);
+            
+            // Create the file card
+            const fileCard = await createFileCardAsync(fileObj);
+            
+            // Add the file card to the gallery
+            fragment.appendChild(fileCard);
+        }));
         
-        // Add a small delay between processing items, but only if not in modal
-        if (!isModalOpen) {
-            await new Promise(resolve => setTimeout(resolve, 50));
-        }
+        // No need for artificial delay between batches for better performance
     }
     
-    // After all files are processed, append the fragment to the gallery
-    gallery.appendChild(fragment);
+    // Remove all remaining placeholders
+    const remainingPlaceholders = gallery.querySelectorAll('.placeholder-thumbnail');
+    remainingPlaceholders.forEach(placeholder => placeholder.remove());
     
-    return fragment;
+    // Return when all files are processed
+    return Promise.resolve();
 }
 
 /**
