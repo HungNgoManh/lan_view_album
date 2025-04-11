@@ -859,7 +859,7 @@ async function createFileCardAsync(fileObj) {
             fileLink.title = filename;
             fileLink.onclick = (e) => {
                 e.preventDefault();
-                showVideoModal(url, filename);
+                showVideoModal(url, filename, truncatedFilename);
                 return false;
             };
             filenameTd.appendChild(fileLink);
@@ -887,7 +887,7 @@ async function createFileCardAsync(fileObj) {
     // Create grid card for image/video tabs
     const createGridCard = () => {
         const col = document.createElement('div');
-        col.className = 'col-3 mb-3 real-item';
+        col.className = 'col-lg-3 real-item';
         col.setAttribute('data-filename', filename);
 
         if (isImage) {
@@ -1004,72 +1004,88 @@ async function createFileCardAsync(fileObj) {
     return getCurrentView();
 }
 
-// Update the showVideoModal function to not use server thumbnails
-function showVideoModal(url, filename, title = '') {
+/**
+ * Shows the image modal with the clicked image
+ * @param {string} url - URL of the image to display
+ * @param {string} filename - Filename of the image
+ * @param {string} title - Optional title to display
+ */
+function showImageModal(url, filename, title = '') {
     // Pause background loading operations
     isModalOpen = true;
     loadingPaused = true;
     
     // Get the modal
-    const videoModal = document.getElementById('videoModal');
-    if (!videoModal) return;
+    const imageModal = document.getElementById('imageModal');
+    if (!imageModal) return;
     
     // Set the modal title
-    const modalTitle = videoModal.querySelector('.modal-title');
+    const modalTitle = imageModal.querySelector('.modal-title');
     if (modalTitle) {
-        modalTitle.textContent = title || filename || 'View Video';
+        modalTitle.textContent = title || filename || 'Image Preview';
     }
 
-    // Clear previous video
-    const videoContainer = videoModal.querySelector('.video-container');
-    videoContainer.innerHTML = '';
+    // Get the image element and loading indicator
+    const modalImage = document.getElementById('modalImage');
+    const loadingIndicator = document.getElementById('imageLoadingIndicator');
     
-    // Create a new video element
-    const video = document.createElement('video');
-    video.src = url;
-    video.controls = true;
-    video.autoplay = true;
-    video.className = 'w-100 h-auto';
-    videoContainer.appendChild(video);
-    
-    // Add loading indicator
-    const loadingIndicator = document.createElement('div');
-    loadingIndicator.className = 'position-absolute top-50 start-50 translate-middle';
-    loadingIndicator.innerHTML = `
-        <div class="spinner-border text-light" role="status">
-            <span class="visually-hidden">Loading...</span>
-        </div>
-    `;
-    videoContainer.appendChild(loadingIndicator);
-    
-    // Handle video loading events
-    video.onloadeddata = function() {
-        loadingIndicator.remove();
+    if (modalImage) {
+        // Show loading state
+        modalImage.style.opacity = '0.3';
+        if (loadingIndicator) loadingIndicator.style.display = 'block';
         
-        // Cache thumbnail to localStorage when video is loaded
-        // Use the queuing system instead of direct call
-        queueVideoThumbnail(url, filename, null, null);
-    };
+        // Set image source
+        modalImage.src = url;
+        
+        // Handle image load event
+        modalImage.onload = function() {
+            modalImage.style.opacity = '1';
+            if (loadingIndicator) loadingIndicator.style.display = 'none';
+        };
+        
+        // Handle image error
+        modalImage.onerror = function() {
+            modalImage.style.display = 'none';
+            if (loadingIndicator) loadingIndicator.style.display = 'none';
+            
+            const modalBody = imageModal.querySelector('.modal-body');
+            if (modalBody) {
+                modalBody.innerHTML = `
+                    <div class="alert alert-danger text-center p-5">
+                        <i class="bi bi-exclamation-triangle me-2"></i>
+                        Error loading image
+                    </div>
+                `;
+            }
+        };
+    }
     
-    video.onerror = function() {
-        loadingIndicator.remove();
-        videoContainer.innerHTML = `
-            <div class="alert alert-danger">
-                <i class="bi bi-exclamation-triangle"></i>
-                Error loading video
-            </div>
-        `;
-    };
+    // Setup delete button with the filename
+    const deleteBtn = document.getElementById('deleteImageBtn');
+    if (deleteBtn) {
+        // Remove any existing event listeners
+        const newDeleteBtn = deleteBtn.cloneNode(true);
+        deleteBtn.parentNode.replaceChild(newDeleteBtn, deleteBtn);
+        
+        // Add new event listener
+        newDeleteBtn.addEventListener('click', function() {
+            // Close the modal first
+            const modalInstance = bootstrap.Modal.getInstance(imageModal);
+            if (modalInstance) modalInstance.hide();
+            
+            // Confirm deletion
+            if (confirm(`Are you sure you want to delete "${filename}"?`)) {
+                deleteFile(filename);
+            }
+        });
+    }
     
     // Show the modal
-    const modal = new bootstrap.Modal(videoModal);
+    const modal = new bootstrap.Modal(imageModal);
     modal.show();
     
-    // Handle modal close
-    videoModal.addEventListener('hidden.bs.modal', function () {
-        // Stop the video when modal is closed
-        videoContainer.innerHTML = '';
-        
+    // Handle modal close event
+    imageModal.addEventListener('hidden.bs.modal', function() {
         // Reset loading state
         isModalOpen = false;
         loadingPaused = false;
@@ -1082,481 +1098,6 @@ function showVideoModal(url, filename, title = '') {
                 operation();
             }
         }
-    }, { once: true });
-}
-
-// Update clearOldThumbnails to handle the new naming convention and manage storage better
-function clearOldThumbnails() {
-    const keys = Object.keys(localStorage);
-    
-    // Find all thumbnail keys - now including video_thumb_ prefix
-    const thumbnailKeys = keys.filter(key => 
-        key.startsWith('img_thumb_') || 
-        key.startsWith('video_thumb_')
-    );
-    
-
-    
-    console.log(`Storage management: ${thumbnailKeys.length} thumbnails found in localStorage`);
-    
-    // Calculate total storage used by thumbnails
-    let totalBytes = 0;
-    thumbnailKeys.forEach(key => {
-        totalBytes += localStorage.getItem(key).length;
-    });
-    
-    const totalMB = (totalBytes / 1024 / 1024).toFixed(2);
-    console.log(`Thumbnail storage: ${totalMB} MB used`);
-    
-    // More aggressive cleanup - remove 50% of thumbnails if we're over threshold
-    // or remove 75% if this is an emergency cleanup (likely called after a quota error)
-    const isEmergencyCleanup = totalBytes > 3.5 * 1024 * 1024;
-    
-    if (thumbnailKeys.length > 100 || totalBytes > 2 * 1024 * 1024 || isEmergencyCleanup) {
-        // Sort by timestamp (assuming filenames often have timestamps)
-        thumbnailKeys.sort();
-        
-        // Remove more thumbnails in emergency mode
-        const percentToRemove = isEmergencyCleanup ? 0.75 : 0.5;
-        const removeCount = Math.max(Math.floor(thumbnailKeys.length * percentToRemove), 30);
-        console.log(`Storage cleanup: ${isEmergencyCleanup ? "EMERGENCY " : ""}Removing ${removeCount} thumbnails (${percentToRemove*100}%) from localStorage`);
-        
-        for (let i = 0; i < removeCount; i++) {
-            localStorage.removeItem(thumbnailKeys[i]);
-        }
-        
-        // Also remove random thumbnails if we're in emergency mode
-        if (isEmergencyCleanup && thumbnailKeys.length > removeCount) {
-            const remainingKeys = thumbnailKeys.slice(removeCount);
-            const additionalRemoveCount = Math.min(20, remainingKeys.length);
-            
-            console.log(`Emergency cleanup: Removing ${additionalRemoveCount} additional random thumbnails`);
-            
-            // Shuffle array and take first 20 elements
-            const shuffled = remainingKeys.sort(() => 0.5 - Math.random());
-            const randomToRemove = shuffled.slice(0, additionalRemoveCount);
-            
-            randomToRemove.forEach(key => {
-                localStorage.removeItem(key);
-            });
-        }
-        
-        return true; // Return true to indicate cleaning was performed
-    }
-    
-    
-    return false; // Return false to indicate no aggressive cleaning was needed
-}
-
-// Add a new function to manage localStorage limits and cleanup
-function manageLocalStorage() {
-    try {
-        // Calculate localStorage usage
-        let totalBytes = 0;
-        let thumbnailBytes = 0;
-        let thumbnailCount = 0;
-        
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            const value = localStorage.getItem(key);
-            totalBytes += (value?.length || 0);
-            
-            // Track thumbnail-specific stats
-            if (key.startsWith('img_thumb_') || key.startsWith('video_thumb_')) {
-                thumbnailBytes += value.length;
-                thumbnailCount++;
-            }
-        }
-        
-        const totalMB = (totalBytes / 1024 / 1024).toFixed(2);
-        const thumbnailMB = (thumbnailBytes / 1024 / 1024).toFixed(2);
-        
-        console.log(`Total localStorage usage: ${totalMB} MB (${thumbnailMB} MB for ${thumbnailCount} thumbnails)`);
-        
-        // Proactive cleanup if we're above certain thresholds
-        // Most browsers have 5-10MB limit, so we'll start cleaning at lower thresholds
-        if (thumbnailBytes > 2 * 1024 * 1024 || thumbnailCount > 100) {
-            console.log('Performing proactive thumbnail cleanup');
-            clearOldThumbnails();
-        }
-        
-        // More aggressive cleanup if total storage is high
-        if (totalBytes > 4 * 1024 * 1024) {
-            console.warn('LocalStorage is getting full, performing aggressive cleanup');
-            clearOldThumbnails();
-            
-            // If still high, clear non-essential data
-            setTimeout(() => {
-                let stillTooHigh = false;
-                try {
-                    let checkBytes = 0;
-                    for (let i = 0; i < localStorage.length; i++) {
-                        checkBytes += (localStorage.getItem(localStorage.key(i))?.length || 0);
-                    }
-                    stillTooHigh = checkBytes > 4 * 1024 * 1024;
-                } catch (e) {
-                    stillTooHigh = true;
-                }
-                
-                if (stillTooHigh) {
-                    console.warn('Extreme cleanup: Clearing all thumbnails');
-                    for (let i = localStorage.length - 1; i >= 0; i--) {
-                        const key = localStorage.key(i);
-                        if (key && (key.startsWith('img_thumb_') || 
-                                   key.startsWith('video_thumb_'))) {
-                            localStorage.removeItem(key);
-                        }
-                    }
-                }
-            }, 1000);
-        }
-    } catch (e) {
-        console.error('Error managing localStorage:', e);
-    }
-}
-
-// Run storage management periodically
-setInterval(manageLocalStorage, 60000); // Check every minute
-
-// Update createPlaceholderThumbnails to create a more compact version
-function createPlaceholderThumbnails(count = 1) {
-    // Create a document fragment for better performance
-    const fragment = document.createDocumentFragment();
-    
-    for (let i = 0; i < count; i++) {
-        const col = document.createElement('div');
-        col.className = 'col-3 mb-3 placeholder-thumbnail';
-        
-        col.innerHTML = `
-            <div class="card h-100">
-                <div class="position-relative" style="aspect-ratio: 1/1; background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite;">
-                    <div class="position-absolute top-50 start-50 translate-middle">
-                        <div class="spinner-border text-primary spinner-border-sm" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        fragment.appendChild(col);
-    }
-    
-    return fragment;
-}
-
-function showEndOfContentMessage(gallery) {
-    // Remove any existing end message
-    const existingEndMessage = gallery.querySelector('.no-more-items');
-    if (existingEndMessage) {
-        existingEndMessage.remove();
-    }
-
-    // Show the message if we've reached the end of content
-    if (!hasMore) {
-        const endMessage = document.createElement('div');
-        endMessage.className = 'col-12 text-center py-4 no-more-items';
-        endMessage.innerHTML = `
-            <div class="alert alert-light">
-                <i class="bi bi-check-circle me-2"></i>
-                You've reached the end of the content
-            </div>
-        `;
-        gallery.appendChild(endMessage);
-    }
-}
-
-/**
- * Deletes a file via API call and maintains current filter
- * @param {string} filename - The filename to delete
- */
-function deleteFile(filename) {
-    // Store current filter before deletion
-    const currentFilterBeforeDeletion = currentFilter;
-    
-    // Show a loading spinner
-    const loadingEl = document.createElement('div');
-    loadingEl.className = 'position-fixed top-50 start-50 translate-middle bg-white p-4 rounded shadow-lg';
-    loadingEl.innerHTML = `
-        <div class="d-flex align-items-center">
-            <div class="spinner-border text-primary me-3" role="status">
-                <span class="visually-hidden">Deleting...</span>
-            </div>
-            <div>Deleting "${truncateFilename(filename, 20)}"...</div>
-        </div>
-    `;
-    document.body.appendChild(loadingEl);
-    
-    // Make the delete request
-    fetch(`/delete/${filename}`, { method: 'DELETE' })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`Failed to delete: ${response.status} ${response.statusText}`);
-            }
-            return response.json();
-        })
-        .then((data) => {
-            // Check if the file was the last one in its category
-            const ext = filename.split('.').pop().toLowerCase();
-            const wasImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
-            const wasVideo = ['mp4', 'webm', 'mov'].includes(ext);
-            
-            // Show success toast
-            showToast('success', `File "${truncateFilename(filename, 20)}" deleted successfully.`);
-            
-            // Check if we're on a tab that might now be empty
-            if ((currentFilterBeforeDeletion === 'image' && wasImage) ||
-                (currentFilterBeforeDeletion === 'video' && wasVideo) ||
-                (currentFilterBeforeDeletion === 'other' && !wasImage && !wasVideo)) {
-                
-                // Check if we just deleted the last file in this category
-                if (data && data.counts) {
-                    const relevantCount = wasImage ? data.counts.images : 
-                                         wasVideo ? data.counts.videos : 
-                                         data.counts.others;
-                    
-                    if (relevantCount === 0) {
-                        console.log(`Deleted the last ${currentFilterBeforeDeletion} file, switching to 'all' tab`);
-                        currentFilterBeforeDeletion = 'all';
-                    }
-                }
-            }
-            
-            // Important: Reload the gallery with the same filter that was active
-            loadGallery(currentFilterBeforeDeletion, 1); // Reset to page 1
-            
-            // Also update the filter in the URL to maintain state
-            const newUrl = new URL(window.location);
-            newUrl.searchParams.set('filter', currentFilterBeforeDeletion);
-            window.history.pushState({}, '', newUrl);
-            
-            // Make sure the filter button stays active
-            updateFilterButtonState(currentFilterBeforeDeletion);
-        })
-        .catch(error => {
-            console.error('Error deleting file:', error);
-            showToast('error', `Error deleting file: ${error.message}`);
-        })
-        .finally(() => {
-            // Remove the loading spinner
-            if (loadingEl.parentNode) {
-                loadingEl.remove();
-            }
-        });
-}
-
-/**
- * Updates the active state of filter buttons
- * @param {string} activeFilter - The filter to set as active
- */
-function updateFilterButtonState(activeFilter) {
-        const filterButtons = document.querySelectorAll('.btn-filter');
-        filterButtons.forEach(button => {
-        if (button.dataset.filter === activeFilter) {
-                button.classList.add('active');
-            } else {
-                button.classList.remove('active');
-            }
-        });
-}
-
-function renameFilePrompt(oldName) {
-    const newName = prompt('Enter new filename (with extension):', oldName);
-    if (newName && newName !== oldName) {
-        fetch('/rename', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ oldName, newName })
-        }).then(() => loadGallery());
-    }
-}
-
-function showImageModal(selectedUrl) {
-    // Get file extension to determine if it's a video or image
-    const ext = selectedUrl.split('.').pop().toLowerCase();
-    const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
-    const filename = selectedUrl.split('/').pop();
-    
-    // Truncate filename to prevent layout issues
-    const truncatedFilename = truncateFilename(filename, 30);
-    
-    console.log(`Opening ${isVideo ? 'video' : 'image'}: ${filename} (${selectedUrl})`);
-
-    if (isVideo) {
-        showVideoModal(selectedUrl, filename, truncatedFilename);
-    } else {
-        showSingleImageModal(selectedUrl, filename, truncatedFilename);
-    }
-}
-
-/**
- * Shows the image modal with ONLY the clicked image
- * Pauses background loading for better performance
- */
-function showSingleImageModal(selectedUrl, filename, truncatedFilename) {
-    // Start performance timer
-    performanceMetrics.startTimer();
-    
-    // Pause background loading operations
-    pauseBackgroundLoading();
-    isModalOpen = true;
-    
-    const imageModal = document.getElementById('imageModal');
-    const carouselImages = document.getElementById('carouselImages');
-    const imageModalTitle = document.querySelector('#imageModal .modal-title');
-    
-    if (!carouselImages || !imageModal) {
-        console.error('Image modal elements not found');
-        return;
-    }
-    
-    // Disable any carousel functionality
-    const prevButton = imageModal.querySelector('.carousel-control-prev');
-    const nextButton = imageModal.querySelector('.carousel-control-next');
-    if (prevButton) prevButton.style.display = 'none';
-    if (nextButton) nextButton.style.display = 'none';
-    
-    // Clear any existing content
-    carouselImages.innerHTML = '';
-    
-    // Set modal title
-    if (imageModalTitle) {
-        imageModalTitle.textContent = truncatedFilename;
-        imageModalTitle.title = filename;
-    }
-    
-    // Update delete button
-    updateModalButtons('imageModal', filename);
-    
-    // Create image container with loader
-    const imageContainer = document.createElement('div');
-    imageContainer.className = 'carousel-item active';
-    imageContainer.innerHTML = `
-        <div class="position-relative" style="min-height: 200px;">
-            <div class="position-absolute top-50 start-50 translate-middle loader-spinner">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    // Add to carousel
-    carouselImages.appendChild(imageContainer);
-    
-    // Show the modal immediately
-    const modalInstance = new bootstrap.Modal(imageModal);
-    modalInstance.show();
-    
-    // Pre-load the image before adding it to the DOM
-    const imgLoader = new Image();
-    
-    // Set up load event handlers
-    imgLoader.onload = function() {
-        // Record performance metric
-        const loadTime = performanceMetrics.endTimer('Image modal load');
-        performanceMetrics.recordImageLoad(loadTime);
-        console.log(`Average image load time: ${performanceMetrics.getAverageImageLoadTime().toFixed(2)}ms`);
-        
-        console.log(`Image loaded successfully: ${selectedUrl}`);
-        
-        // Create and add the visible image
-        const imgElement = document.createElement('img');
-        imgElement.src = selectedUrl;
-        imgElement.className = 'd-block w-100';
-        imgElement.alt = filename;
-        imgElement.style.opacity = '0';
-        imgElement.style.transition = 'opacity 0.3s';
-        
-        // Remove spinner and add the image
-        const spinnerDiv = imageContainer.querySelector('.loader-spinner');
-        if (spinnerDiv) spinnerDiv.remove();
-        
-        // Clear container and add the image
-        imageContainer.querySelector('.position-relative').appendChild(imgElement);
-        
-        // Trigger reflow for smoother animation
-        void imgElement.offsetWidth;
-        
-        // Fade in the image
-        imgElement.style.opacity = '1';
-    };
-    
-    imgLoader.onerror = function() {
-        console.error(`Failed to load image: ${selectedUrl}`);
-        
-        // Show error state
-        imageContainer.innerHTML = `
-            <div class="text-center p-5">
-                <div class="text-danger mb-3">
-                    <i class="bi bi-exclamation-triangle-fill" style="font-size: 3rem;"></i>
-                </div>
-                <h5>Error loading image</h5>
-                <p class="text-muted">${selectedUrl}</p>
-                <button class="btn btn-sm btn-outline-primary retry-button">
-                    <i class="bi bi-arrow-clockwise"></i> Retry
-                </button>
-            </div>
-        `;
-        
-        // Add retry button handler
-        const retryButton = imageContainer.querySelector('.retry-button');
-        if (retryButton) {
-            retryButton.addEventListener('click', function() {
-                showSingleImageModal(selectedUrl, filename, truncatedFilename);
-            });
-        }
-    };
-    
-    // Add a timeout for very slow connections
-    const loadTimeout = setTimeout(() => {
-        if (!imgLoader.complete) {
-            console.warn(`Image load timeout: ${selectedUrl}`);
-            imgLoader.src = ''; // Cancel the current load
-            
-            // Show error with retry option
-            imageContainer.innerHTML = `
-                <div class="text-center p-5">
-                    <div class="text-warning mb-3">
-                        <i class="bi bi-clock-history" style="font-size: 3rem;"></i>
-                    </div>
-                    <h5>Image is taking too long to load</h5>
-                    <p class="text-muted">The server might be busy or the image may be too large</p>
-                    <button class="btn btn-sm btn-outline-primary retry-button">
-                        <i class="bi bi-arrow-clockwise"></i> Retry
-                    </button>
-                </div>
-            `;
-            
-            // Add retry button handler
-            const retryButton = imageContainer.querySelector('.retry-button');
-            if (retryButton) {
-                retryButton.addEventListener('click', function() {
-                    showSingleImageModal(selectedUrl, filename, truncatedFilename);
-                });
-            }
-        }
-    }, 15000); // 15 seconds timeout
-    
-    // Start loading the image
-    imgLoader.src = selectedUrl;
-    
-    // Check if image is already cached
-    if (imgLoader.complete) {
-        console.log('Image already cached, loading immediately');
-        clearTimeout(loadTimeout);
-        imgLoader.onload();
-    }
-
-    // Add handler for modal close
-    imageModal.addEventListener('hidden.bs.modal', function onModalClose() {
-        isModalOpen = false;
-        
-        // Resume background loading after a short delay
-        setTimeout(resumeBackgroundLoading, 300);
-        
-        // Remove this specific event listener to avoid duplicates
-        imageModal.removeEventListener('hidden.bs.modal', onModalClose);
     });
 }
 
@@ -1589,6 +1130,7 @@ function showVideoModal(url, filename, title = '') {
     video.controls = true;
     video.autoplay = true;
     video.className = 'w-100 h-auto';
+    video.id = 'activeVideoPlayer';
     videoContainer.appendChild(video);
     
     // Add loading indicator
@@ -1624,9 +1166,20 @@ function showVideoModal(url, filename, title = '') {
     const modal = new bootstrap.Modal(videoModal);
     modal.show();
     
-    // Handle modal close
-    videoModal.addEventListener('hidden.bs.modal', function () {
-        // Stop the video when modal is closed
+    // Add a proper modal close handler
+    const closeHandler = function() {
+        // Properly stop the video
+        const videoElement = document.getElementById('activeVideoPlayer');
+        if (videoElement) {
+            // Pause the video
+            videoElement.pause();
+            // Clear the source to stop any background loading
+            videoElement.removeAttribute('src');
+            // Force the browser to stop using the video
+            videoElement.load();
+        }
+        
+        // Clear container content
         videoContainer.innerHTML = '';
         
         // Reset loading state
@@ -1634,14 +1187,20 @@ function showVideoModal(url, filename, title = '') {
         loadingPaused = false;
         
         // Process any queued loading operations
-        if (loadingQueue.length > 0) {
+        if (loadingQueue && loadingQueue.length > 0) {
             console.log(`Processing ${loadingQueue.length} queued loading operations`);
             while (loadingQueue.length > 0) {
                 const operation = loadingQueue.shift();
                 operation();
             }
         }
-    }, { once: true });
+        
+        // Remove this event listener to prevent multiple bindings
+        videoModal.removeEventListener('hidden.bs.modal', closeHandler);
+    };
+    
+    // Handle modal close with a proper event listener
+    videoModal.addEventListener('hidden.bs.modal', closeHandler);
 }
 
 // Add this flag to track if initialization has been done
@@ -2032,7 +1591,7 @@ async function processFilesSequentially(files, gallery, page) {
         
         // Process the file based on type
         const col = document.createElement('div');
-        col.className = 'col-3 mb-3 real-item';
+        col.className = 'col-lg-3 real-item';
         col.setAttribute('data-filename', filename);
         
         if (isImage) {
@@ -2254,6 +1813,43 @@ function updateModalButtons(modalId, filename) {
     closeButton.innerHTML = '<i class="bi bi-x-circle"></i> Close';
     closeButton.setAttribute('data-bs-dismiss', 'modal');
     buttonContainer.appendChild(closeButton);
+}
+
+/**
+ * Deletes a file from the server
+ * @param {string} filename - The filename to delete
+ */
+function deleteFile(filename) {
+    // Show loading toast
+    showToast('info', `Deleting ${filename}...`);
+    
+    // Send delete request to server
+    fetch(`/delete/${encodeURIComponent(filename)}`, {
+        method: 'DELETE'
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('Delete response:', data);
+        
+        // Show success toast
+        showToast('success', `${filename} was deleted successfully`);
+        
+        // Remove from local storage
+        localStorage.removeItem(`img_thumb_${filename}`);
+        localStorage.removeItem(`video_thumb_${filename}`);
+        
+        // Refresh the gallery to show updated content
+        loadGallery(currentFilter, currentPage);
+    })
+    .catch(error => {
+        console.error('Error deleting file:', error);
+        showToast('error', `Failed to delete ${filename}: ${error.message}`);
+    });
 }
 
 /**
@@ -2688,6 +2284,20 @@ function safelyStoreInLocalStorage(key, value) {
     }
 }
 
+/**
+ * Updates the active state of filter buttons based on the selected filter
+ * @param {string} filter - The current filter to set as active
+ */
+function updateFilterButtonState(filter) {
+    const filterButtons = document.querySelectorAll('.btn-filter');
+    filterButtons.forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.filter === filter) {
+            btn.classList.add('active');
+        }
+    });
+}
+
 // Add at the end of the file
 // Setup filter buttons with click handlers
 function setupFilterButtons() {
@@ -2825,4 +2435,79 @@ function queueVideoThumbnail(url, filename, imgElement, loadingElement) {
     if (!isProcessingVideoThumbnails) {
         processVideoThumbnailQueue();
     }
+}
+
+/**
+ * Creates placeholder thumbnails for loading state
+ * @param {number} count - Number of placeholders to create
+ * @returns {DocumentFragment} - Fragment containing placeholders
+ */
+function createPlaceholderThumbnails(count = 3) {
+    const fragment = document.createDocumentFragment();
+    const viewMode = document.getElementById('viewModeToggle')?.dataset?.mode || 'grid';
+    
+    for (let i = 0; i < count; i++) {
+        const col = document.createElement('div');
+        
+        if (viewMode === 'grid') {
+            col.className = 'col-lg-3 placeholder-thumbnail';
+            const card = document.createElement('div');
+            card.className = 'card placeholder-thumbnail h-100 bg-light shadow-sm';
+            
+            const cardBody = document.createElement('div');
+            cardBody.className = 'card-body placeholder-glow';
+            
+            const imgPlaceholder = document.createElement('div');
+            imgPlaceholder.className = 'placeholder-image mb-2';
+            imgPlaceholder.style.height = '120px';
+            imgPlaceholder.style.backgroundColor = '#e9e9e9';
+            imgPlaceholder.style.borderRadius = '3px';
+            
+            const titlePlaceholder = document.createElement('div');
+            titlePlaceholder.className = 'placeholder col-9 mb-2';
+            titlePlaceholder.style.height = '18px';
+            
+            const infoPlaceholder = document.createElement('div');
+            infoPlaceholder.className = 'placeholder col-6';
+            infoPlaceholder.style.height = '14px';
+            
+            cardBody.appendChild(imgPlaceholder);
+            cardBody.appendChild(titlePlaceholder);
+            cardBody.appendChild(infoPlaceholder);
+            card.appendChild(cardBody);
+            col.appendChild(card);
+        } else {
+            col.className = 'col-12 mb-2 placeholder-thumbnail';
+            const row = document.createElement('div');
+            row.className = 'list-item d-flex align-items-center bg-light p-2 rounded placeholder-glow';
+            
+            const iconPlaceholder = document.createElement('div');
+            iconPlaceholder.className = 'placeholder me-2';
+            iconPlaceholder.style.width = '40px';
+            iconPlaceholder.style.height = '40px';
+            iconPlaceholder.style.borderRadius = '3px';
+            
+            const textContainer = document.createElement('div');
+            textContainer.className = 'flex-grow-1';
+            
+            const titlePlaceholder = document.createElement('div');
+            titlePlaceholder.className = 'placeholder col-5 mb-1';
+            titlePlaceholder.style.height = '18px';
+            
+            const infoPlaceholder = document.createElement('div');
+            infoPlaceholder.className = 'placeholder col-3';
+            infoPlaceholder.style.height = '14px';
+            
+            textContainer.appendChild(titlePlaceholder);
+            textContainer.appendChild(infoPlaceholder);
+            
+            row.appendChild(iconPlaceholder);
+            row.appendChild(textContainer);
+            col.appendChild(row);
+        }
+        
+        fragment.appendChild(col);
+    }
+    
+    return fragment;
 }

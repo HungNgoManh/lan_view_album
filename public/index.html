@@ -1004,10 +1004,17 @@
             }
         }
         /* Force 4 columns on all screen sizes */
-        .col-3 {
+        .col-lg-3 {
             flex: 0 0 25% !important;
             max-width: 25% !important;
-            height: 25vw !important;
+            height: 25vw !important; /* Match width exactly */
+            padding: 5px !important; /* Add small padding inside */
+            margin-bottom: 0 !important; /* Override any margin-bottom */
+        }
+
+        /* Ensure the real item has consistent spacing */
+        .real-item {
+            margin-bottom: 0 !important;
         }
     </style>
 </head>
@@ -1097,22 +1104,22 @@
         <h5 class="modal-title" id="imageModalLabel">Image Preview</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
-      <div class="modal-body">
-        <div id="carouselExample" class="carousel slide">
-          <div class="carousel-inner" id="carouselImages">
-            <!-- Images will be inserted here -->
+      <div class="modal-body text-center">
+        <div class="position-relative">
+          <img id="modalImage" class="img-fluid" alt="Image preview">
+          <div id="imageLoadingIndicator" class="position-absolute top-50 start-50 translate-middle">
+            <div class="spinner-border text-primary" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
           </div>
-          <button class="carousel-control-prev" type="button" data-bs-target="#carouselExample" data-bs-slide="prev">
-            <span class="carousel-control-prev-icon" aria-hidden="true"></span>
-            <span class="visually-hidden">Previous</span>
-          </button>
-          <button class="carousel-control-next" type="button" data-bs-target="#carouselExample" data-bs-slide="next">
-            <span class="carousel-control-next-icon" aria-hidden="true"></span>
-            <span class="visually-hidden">Next</span>
-          </button>
         </div>
       </div>
-      <!-- Footer with buttons will be added dynamically -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" id="deleteImageBtn">
+          <i class="bi bi-trash"></i> Delete
+        </button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
     </div>
   </div>
 </div>
