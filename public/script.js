@@ -247,144 +247,144 @@ async function loadGallery(filter = 'all', page = 1) {
         // Fetch files with filter and pagination
         const res = await fetch(`/uploads?filter=${filter}&page=${page}&limit=${limit}&sort=date&order=desc`);
         
-        if (!res.ok) {
-            // Special handling for 500 errors when likely due to empty category
-            if (res.status === 500 && ['image', 'video', 'other'].includes(filter)) {
-                console.warn(`Server error for filter "${filter}", treating as empty category`);
-                // Return a mock empty response
+            if (!res.ok) {
+                // Special handling for 500 errors when likely due to empty category
+                if (res.status === 500 && ['image', 'video', 'other'].includes(filter)) {
+                    console.warn(`Server error for filter "${filter}", treating as empty category`);
+                    // Return a mock empty response
                 return await processGalleryData({
-                    files: [],
-                    counts: {
-                        all: 0,
-                        images: 0,
-                        videos: 0,
-                        others: 0
-                    },
-                    hasMore: false,
+                        files: [],
+                        counts: {
+                            all: 0,
+                            images: 0,
+                            videos: 0,
+                            others: 0
+                        },
+                        hasMore: false,
                     page: page,
                     totalFiles: 0,
                     totalPages: 0
                 }, gallery, page, filter);
+                }
+                
+                throw new Error(`HTTP error! status: ${res.status}`);
             }
-            
-            throw new Error(`HTTP error! status: ${res.status}`);
-        }
         
         const data = await res.json();
         
-        // Standardize the response format
-        let standardizedData = {
-            files: [],
-            counts: {
-                all: 0,
-                images: 0,
-                videos: 0,
-                others: 0
-            },
-            hasMore: false,
+            // Standardize the response format
+            let standardizedData = {
+                files: [],
+                counts: {
+                    all: 0,
+                    images: 0,
+                    videos: 0,
+                    others: 0
+                },
+                hasMore: false,
             page: page,
             totalFiles: 0,
             totalPages: 0
-        };
-        
-        // Handle various response formats
-        if (Array.isArray(data)) {
-            // Old format: array of filenames
-            standardizedData.files = data.map(filename => ({ filename }));
+            };
+            
+            // Handle various response formats
+            if (Array.isArray(data)) {
+                // Old format: array of filenames
+                standardizedData.files = data.map(filename => ({ filename }));
             standardizedData.hasMore = data.length >= limit;
-        } else if (data && typeof data === 'object') {
-            // New format with potential missing properties
-            standardizedData.files = Array.isArray(data.files) ? data.files : [];
-            standardizedData.counts = data.counts || standardizedData.counts;
-            standardizedData.hasMore = data.hasMore !== undefined ? data.hasMore : false;
-            standardizedData.page = data.page || page;
+            } else if (data && typeof data === 'object') {
+                // New format with potential missing properties
+                standardizedData.files = Array.isArray(data.files) ? data.files : [];
+                standardizedData.counts = data.counts || standardizedData.counts;
+                standardizedData.hasMore = data.hasMore !== undefined ? data.hasMore : false;
+                standardizedData.page = data.page || page;
             standardizedData.totalFiles = data.totalFiles || standardizedData.files.length;
             standardizedData.totalPages = data.totalPages || 1;
-        } else {
-            console.warn(`Unexpected response format for filter "${filter}":`, data);
-        }
-        
-        // Update app state with the standardized data
-        currentPage = standardizedData.page;
-        hasMore = standardizedData.hasMore;
+            } else {
+                console.warn(`Unexpected response format for filter "${filter}":`, data);
+            }
+            
+            // Update app state with the standardized data
+            currentPage = standardizedData.page;
+            hasMore = standardizedData.hasMore;
         totalFiles = standardizedData.totalFiles;
         totalPages = standardizedData.totalPages;
-        
-        // Update tab labels with counts
-        updateTabLabels(standardizedData.counts);
-        
-        // Process the gallery with standardized data
+            
+            // Update tab labels with counts
+            updateTabLabels(standardizedData.counts);
+            
+            // Process the gallery with standardized data
         await processGalleryData(standardizedData, gallery, page, filter);
     } catch (error) {
-        console.error('Error loading gallery:', error);
-        
-        // If it's a 500 error and we're not on the "all" filter, switch to "all"
-        if (error.message.includes('500') && filter !== 'all') {
-            console.log(`Switching to 'all' filter due to server error`);
-            showToast('warning', `Could not load ${filter} category, showing all files instead`);
+            console.error('Error loading gallery:', error);
             
-            // Switch to all filter after a short delay
-            setTimeout(() => {
-                currentFilter = 'all';
-                loadGallery('all', 1);
-                updateFilterButtonState('all');
+            // If it's a 500 error and we're not on the "all" filter, switch to "all"
+            if (error.message.includes('500') && filter !== 'all') {
+                console.log(`Switching to 'all' filter due to server error`);
+                showToast('warning', `Could not load ${filter} category, showing all files instead`);
                 
-                // Update URL
-                const newUrl = new URL(window.location);
-                newUrl.searchParams.set('filter', 'all');
+                // Switch to all filter after a short delay
+                setTimeout(() => {
+                    currentFilter = 'all';
+                    loadGallery('all', 1);
+                    updateFilterButtonState('all');
+                    
+                    // Update URL
+                    const newUrl = new URL(window.location);
+                    newUrl.searchParams.set('filter', 'all');
                 newUrl.searchParams.set('page', '1');
-                window.history.pushState({}, '', newUrl);
-            }, 500);
+                    window.history.pushState({}, '', newUrl);
+                }, 500);
+                
+                return;
+            }
             
-            return;
-        }
-        
-        // Remove placeholders
-        const placeholders = gallery.querySelectorAll('.placeholder-thumbnail');
-        placeholders.forEach(placeholder => placeholder.remove());
-        
-        // Show user-friendly error message
-        if (page === 1) {
-            gallery.innerHTML = `
-                <div class="col-12 text-center py-5">
-                    <div class="alert alert-danger" role="alert">
-                        <i class="bi bi-exclamation-triangle-fill me-2"></i>
-                        Error loading content: ${error.message}
+            // Remove placeholders
+            const placeholders = gallery.querySelectorAll('.placeholder-thumbnail');
+            placeholders.forEach(placeholder => placeholder.remove());
+            
+            // Show user-friendly error message
+            if (page === 1) {
+                gallery.innerHTML = `
+                    <div class="col-12 text-center py-5">
+                        <div class="alert alert-danger" role="alert">
+                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                            Error loading content: ${error.message}
+                        </div>
+                        <button class="btn btn-primary mt-3" onclick="loadGallery('${filter}', 1)">
+                            <i class="bi bi-arrow-clockwise me-2"></i> Try Again
+                        </button>
                     </div>
-                    <button class="btn btn-primary mt-3" onclick="loadGallery('${filter}', 1)">
-                        <i class="bi bi-arrow-clockwise me-2"></i> Try Again
-                    </button>
-                </div>
-            `;
-        } else {
-            // For subsequent pages, show error at bottom
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'col-12 text-center py-3';
-            errorDiv.innerHTML = `
-                <div class="alert alert-warning">
-                    Failed to load more items. 
-                    <button class="btn btn-sm btn-outline-primary ms-2" onclick="loadGallery('${filter}', ${page})">
-                        Try Again
-                    </button>
-                </div>
-            `;
-            gallery.appendChild(errorDiv);
-        }
+                `;
+            } else {
+                // For subsequent pages, show error at bottom
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'col-12 text-center py-3';
+                errorDiv.innerHTML = `
+                    <div class="alert alert-warning">
+                        Failed to load more items. 
+                        <button class="btn btn-sm btn-outline-primary ms-2" onclick="loadGallery('${filter}', ${page})">
+                            Try Again
+                        </button>
+                    </div>
+                `;
+                gallery.appendChild(errorDiv);
+            }
     } finally {
         // Make sure we remove the loading indicator
         const pageLoadingIndicator = document.getElementById('pageLoadingIndicator');
         if (pageLoadingIndicator) {
             pageLoadingIndicator.remove();
         }
-        
-        // Re-enable filter buttons
-        filterButtons.forEach(btn => btn.disabled = false);
-        
-        // Reset loading flag
-        isLoading = false;
-        
-        // Ensure the correct filter button is active
-        updateFilterButtonState(filter);
+            
+            // Re-enable filter buttons
+            filterButtons.forEach(btn => btn.disabled = false);
+            
+            // Reset loading flag
+            isLoading = false;
+            
+            // Ensure the correct filter button is active
+            updateFilterButtonState(filter);
         
         // Render pagination for all tabs
         // Clear existing pagination first to prevent stale DOM references
@@ -776,21 +776,21 @@ async function processFilesOneByOne(files, gallery, page) {
         
         // Process the batch in parallel
         await Promise.all(batch.map(async (fileObj) => {
-            const filename = fileObj.filename;
-            
-            // Skip if this file has already been processed
-            if (processedFilenames.has(filename)) {
+        const filename = fileObj.filename;
+        
+        // Skip if this file has already been processed
+        if (processedFilenames.has(filename)) {
                 return;
-            }
-            
-            // Mark this file as processed
-            processedFilenames.add(filename);
-            
-            // Create the file card
-            const fileCard = await createFileCardAsync(fileObj);
-            
-            // Add the file card to the gallery
-            gallery.appendChild(fileCard);
+        }
+        
+        // Mark this file as processed
+        processedFilenames.add(filename);
+        
+        // Create the file card
+        const fileCard = await createFileCardAsync(fileObj);
+        
+        // Add the file card to the gallery
+        gallery.appendChild(fileCard);
         }));
         
         // No need for artificial delay between batches for better performance
@@ -851,7 +851,7 @@ async function createFileCardAsync(fileObj) {
         const formattedFilename = truncateFilename(filename, 60);
 
         // Determine file icon and action
-        if (isImage) {
+            if (isImage) {
             const fileLink = document.createElement('a');
             fileLink.className = 'filename-link';
             fileLink.textContent = formattedFilename;
@@ -863,7 +863,7 @@ async function createFileCardAsync(fileObj) {
                 return false;
             };
             filenameTd.appendChild(fileLink);
-        } else if (isVideo) {
+            } else if (isVideo) {
             const fileLink = document.createElement('a');
             fileLink.className = 'filename-link';
             fileLink.textContent = formattedFilename;
@@ -875,7 +875,7 @@ async function createFileCardAsync(fileObj) {
                 return false;
             };
             filenameTd.appendChild(fileLink);
-        } else {
+            } else {
             // Create a download link for other files
             const fileLink = document.createElement('a');
             fileLink.className = 'filename-link';
@@ -936,9 +936,9 @@ async function createFileCardAsync(fileObj) {
                 imgElement.src = cachedThumbnail;
             } else {
                 // Otherwise, load from server and cache
-                imgElement.onload = () => {
-                    imgElement.classList.add('loaded');
-                    if (loadingElement) loadingElement.style.display = 'none';
+                        imgElement.onload = () => {
+                            imgElement.classList.add('loaded');
+                            if (loadingElement) loadingElement.style.display = 'none';
                     // Cache thumbnail
                     safelyStoreInLocalStorage(`img_thumb_${filename}`, imgElement.src);
                 };
@@ -975,16 +975,16 @@ async function createFileCardAsync(fileObj) {
                     if (loadingElement) loadingElement.style.display = 'none';
                 };
                 imgElement.src = cachedThumbnail;
-            } else {
-                captureVideoFrame(url, (thumbnail, duration) => {
-                    safelyStoreInLocalStorage(`video_thumb_${filename}`, thumbnail);
-                    safelyStoreInLocalStorage(`duration_${filename}`, duration);
-                    imgElement.onload = () => {
-                        imgElement.classList.add('loaded');
-                        if (loadingElement) loadingElement.style.display = 'none';
-                    };
-                    imgElement.src = thumbnail;
-                });
+                } else {
+                    captureVideoFrame(url, (thumbnail, duration) => {
+                        safelyStoreInLocalStorage(`video_thumb_${filename}`, thumbnail);
+                        safelyStoreInLocalStorage(`duration_${filename}`, duration);
+                        imgElement.onload = () => {
+                            imgElement.classList.add('loaded');
+                            if (loadingElement) loadingElement.style.display = 'none';
+                        };
+                        imgElement.src = thumbnail;
+                    });
             }
         } else {
             col.innerHTML = `
@@ -1794,7 +1794,7 @@ function handleLoadingIndicatorClick(event) {
     if (event.target.closest('.gallery-loading-indicator') || 
         event.target.closest('.scroll-loading-indicator')) {
         const indicator = event.target.closest('.gallery-loading-indicator') || 
-                          event.target.closest('.scroll-loading-indicator');
+                         event.target.closest('.scroll-loading-indicator');
         indicator.remove();
     }
 }
