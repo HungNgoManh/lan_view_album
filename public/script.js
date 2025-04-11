@@ -703,12 +703,10 @@ function updateTabLabels(counts = {}) {
     const allTab = document.querySelector('[data-filter="all"]');
     const imageTab = document.querySelector('[data-filter="image"]');
     const videoTab = document.querySelector('[data-filter="video"]');
-    const otherTab = document.querySelector('[data-filter="other"]');
 
     if (allTab) allTab.textContent = `All Files (${mergedCounts.all})`;
-    if (imageTab) imageTab.textContent = `Images (${mergedCounts.images})`;
+    if (imageTab) imageTab.textContent = `Photos (${mergedCounts.images})`;
     if (videoTab) videoTab.textContent = `Videos (${mergedCounts.videos})`;
-    if (otherTab) otherTab.textContent = `Other (${mergedCounts.others})`;
 }
 
 // New function to process files one by one
@@ -1008,10 +1006,10 @@ async function createFileCardAsync(fileObj) {
         const activeFilter = document.querySelector('.filter-tabs .active')?.dataset.filter || 'all';
         console.log(`Current active filter: ${activeFilter}`);
         if (activeFilter === 'all') {
-            return createTableRow();
-        } else {
-            return createGridCard();
-        }
+        return createTableRow();
+    } else {
+        return createGridCard();
+    }
     }
     
     return getCurrentView();
