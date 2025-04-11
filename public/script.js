@@ -1003,12 +1003,18 @@ async function createFileCardAsync(fileObj) {
     };
 
     // Return appropriate element based on current view
-    const currentFilter = document.querySelector('.filter-tabs .active').dataset.filter;
-    if (currentFilter === 'all') {
-        return createTableRow();
-    } else {
-        return createGridCard();
+    // Get current filter value from active tab at execution time
+    function getCurrentView() {
+        const activeFilter = document.querySelector('.filter-tabs .active')?.dataset.filter || 'all';
+        console.log(`Current active filter: ${activeFilter}`);
+        if (activeFilter === 'all') {
+            return createTableRow();
+        } else {
+            return createGridCard();
+        }
     }
+    
+    return getCurrentView();
 }
 
 // Update the showVideoModal function to not use server thumbnails
@@ -2679,3 +2685,40 @@ function safelyStoreInLocalStorage(key, value) {
         }
     }
 }
+
+// Add at the end of the file
+// Setup filter buttons with click handlers
+function setupFilterButtons() {
+    const filterButtons = document.querySelectorAll('.btn-filter');
+    filterButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const filter = this.dataset.filter;
+            console.log(`Filter button clicked: ${filter}`);
+            
+            // Update active state
+            filterButtons.forEach(btn => btn.classList.remove('active'));
+            this.classList.add('active');
+            
+            // Update current filter
+            currentFilter = filter;
+            
+            // Load gallery with selected filter
+            loadGallery(filter, 1);
+        });
+    });
+}
+
+// Call the setup function when the document is ready
+document.addEventListener('DOMContentLoaded', function() {
+    // Set initial filter from URL or default to 'all'
+    const initialFilter = getUrlParameter('filter') || 'all';
+    currentFilter = initialFilter;
+    
+    // Setup filter button click handlers
+    setupFilterButtons();
+    
+    // Load initial gallery
+    loadGallery(initialFilter, 1);
+    
+    // Add other initialization code here
+});
