@@ -112,21 +112,6 @@ uppy.on('complete', (result) => {
     }
 });
 
-// Add this function to get video duration
-function getVideoDuration(videoUrl) {
-    return new Promise((resolve) => {
-        const video = document.createElement('video');
-        video.src = videoUrl;
-        video.preload = 'metadata';
-        video.onloadedmetadata = () => {
-            const duration = Math.round(video.duration);
-            const minutes = Math.floor(duration / 60);
-            const seconds = duration % 60;
-            resolve(`${minutes}:${seconds.toString().padStart(2, '0')}`);
-        };
-    });
-}
-
 function createImageThumbnail(url) {
     return new Promise((resolve) => {
         const img = new Image();
@@ -176,6 +161,11 @@ let totalPages = 0;
 let lastScrollTop = 0;
 let loadingPaused = false;
 let loadingQueue = [];
+
+// Add these variables at the top of your script file
+let videoThumbnailQueue = [];
+let isProcessingVideoThumbnails = false;
+const MAX_CONCURRENT_VIDEO_THUMBNAILS = 2; // Limit concurrent video processing
 
 // Update the loadGallery function to handle sequential loading
 async function loadGallery(filter = 'all', page = 1) {
@@ -954,7 +944,6 @@ async function createFileCardAsync(fileObj) {
                             </div>
                         </div>
                         <img class="thumbnail-img" alt="${filename}">
-                        <div class="video-icon">▶️</div>
                     </div>
                 </div>`;
             col.innerHTML = videoHtml;
@@ -974,9 +963,9 @@ async function createFileCardAsync(fileObj) {
                 };
                 imgElement.src = cachedThumbnail;
                 } else {
-                    captureVideoFrame(url, (thumbnail, duration) => {
+                    captureVideoFrame(url, (thumbnail) => {
                         safelyStoreInLocalStorage(`video_thumb_${filename}`, thumbnail);
-                        safelyStoreInLocalStorage(`duration_${filename}`, duration);
+                        //safelyStoreInLocalStorage(`duration_${filename}`, duration);
                         imgElement.onload = () => {
                             imgElement.classList.add('loaded');
                             if (loadingElement) loadingElement.style.display = 'none';
@@ -1058,11 +1047,8 @@ function showVideoModal(url, filename, title = '') {
         loadingIndicator.remove();
         
         // Cache thumbnail to localStorage when video is loaded
-        captureVideoFrame(url, function(thumbnail, duration) {
-            safelyStoreInLocalStorage(`video_thumb_${filename}`, thumbnail);
-            safelyStoreInLocalStorage(`duration_${filename}`, duration);
-            console.log(`Video thumbnail cached for ${filename}`);
-        });
+        // Use the queuing system instead of direct call
+        queueVideoThumbnail(url, filename, null, null);
     };
     
     video.onerror = function() {
@@ -1109,8 +1095,7 @@ function clearOldThumbnails() {
         key.startsWith('video_thumb_')
     );
     
-    // Find all duration keys
-    const durationKeys = keys.filter(key => key.startsWith('duration_'));
+
     
     console.log(`Storage management: ${thumbnailKeys.length} thumbnails found in localStorage`);
     
@@ -1159,13 +1144,6 @@ function clearOldThumbnails() {
         return true; // Return true to indicate cleaning was performed
     }
     
-    // Also cleanup any duration keys without matching thumbnails
-    durationKeys.forEach(durationKey => {
-        const filename = durationKey.replace('duration_', '');
-        if (!localStorage.getItem(`video_thumb_${filename}`)) {
-            localStorage.removeItem(durationKey);
-        }
-    });
     
     return false; // Return false to indicate no aggressive cleaning was needed
 }
@@ -1225,8 +1203,7 @@ function manageLocalStorage() {
                     for (let i = localStorage.length - 1; i >= 0; i--) {
                         const key = localStorage.key(i);
                         if (key && (key.startsWith('img_thumb_') || 
-                                   key.startsWith('video_thumb_') || 
-                                   key.startsWith('duration_'))) {
+                                   key.startsWith('video_thumb_'))) {
                             localStorage.removeItem(key);
                         }
                     }
@@ -1629,11 +1606,8 @@ function showVideoModal(url, filename, title = '') {
         loadingIndicator.remove();
         
         // Cache thumbnail to localStorage when video is loaded
-        captureVideoFrame(url, function(thumbnail, duration) {
-            safelyStoreInLocalStorage(`video_thumb_${filename}`, thumbnail);
-            safelyStoreInLocalStorage(`duration_${filename}`, duration);
-            console.log(`Video thumbnail cached for ${filename}`);
-        });
+        // Use the queuing system instead of direct call
+        queueVideoThumbnail(url, filename, null, null);
     };
     
     video.onerror = function() {
@@ -1805,43 +1779,37 @@ function handleLoadingIndicatorClick(event) {
 
 /**
  * Captures a frame from a video URL and returns it as a data URL
+ * Uses a more efficient approach with performance optimizations
  * @param {string} url - The URL of the video
- * @param {Function} callback - Callback function that receives the thumbnail and duration
+ * @param {Function} callback - Callback function that receives the thumbnail
  */
 function captureVideoFrame(url, callback) {
+    // Use a timeout to prevent hanging on video load
+    let timeoutId = setTimeout(() => {
+        console.warn(`Video thumbnail generation timed out for ${url}`);
+        createFallbackThumbnail();
+    }, 10000); // 10 second timeout
+    
+    // Create a video element for thumbnail capture
     const video = document.createElement('video');
-    video.src = url;
+    video.muted = true; // Ensure muted for autoplay
+    video.playsInline = true; // Better mobile support
+    video.preload = 'metadata'; // Only load metadata first
     video.crossOrigin = 'anonymous'; // Handle CORS if necessary
-    video.addEventListener('loadeddata', function() {
-        video.currentTime = 1; // Seek to 1 second for a better thumbnail (often first frame is black)
-    });
-
-    video.addEventListener('seeked', function() {
-        const canvas = document.createElement('canvas');
-        // Increase thumbnail size for better quality
-        const maxSize = 400; // Increased from 300
-        const scale = Math.min(1, maxSize / Math.max(video.videoWidth, video.videoHeight));
-        canvas.width = video.videoWidth * scale;
-        canvas.height = video.videoHeight * scale;
-        const context = canvas.getContext('2d');
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        // Higher quality JPEG compression
-        const dataURL = canvas.toDataURL('image/jpeg', 0.85); // Increased from 0.7
-        const duration = Math.round(video.duration);
-        const minutes = Math.floor(duration / 60);
-        const seconds = duration % 60;
-        callback(dataURL, `${minutes}:${seconds.toString().padStart(2, '0')}`);
-    });
-
-    video.addEventListener('error', function(e) {
-        console.error(`Error loading video for thumbnail: ${url}`, e);
+    
+    // Create fallback thumbnail if needed
+    function createFallbackThumbnail() {
+        clearTimeout(timeoutId);
         // Create a default thumbnail for video errors
         const canvas = document.createElement('canvas');
-        canvas.width = 400;
-        canvas.height = 300;
+        canvas.width = 300;
+        canvas.height = 200;
         const ctx = canvas.getContext('2d');
-        // Fill with gray background
-        ctx.fillStyle = '#eeeeee';
+        // Fill with gradient background
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        gradient.addColorStop(0, '#f5f5f5');
+        gradient.addColorStop(1, '#e0e0e0');
+        ctx.fillStyle = gradient;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         // Add video icon
         ctx.fillStyle = '#999999';
@@ -1853,10 +1821,64 @@ function captureVideoFrame(url, callback) {
         ctx.font = '14px sans-serif';
         ctx.fillText('Video preview unavailable', canvas.width/2, canvas.height/2 + 40);
         
-        callback(canvas.toDataURL('image/jpeg', 0.85), '0:00');
-    });
+        // Clean up
+        if (video) {
+            video.removeAttribute('src');
+            video.load();
+        }
+        
+        callback(canvas.toDataURL('image/jpeg', 0.6));
+    }
 
-    video.load(); // Ensure the video is loaded
+    // Set up event handlers
+    video.onloadedmetadata = function() {
+        // Once metadata is loaded, seek to a good frame
+        video.currentTime = Math.min(1, video.duration * 0.1); // Either 1 second or 10% of video
+    };
+
+    video.onseeked = function() {
+        try {
+            clearTimeout(timeoutId);
+            
+            // Create a smaller canvas for better performance
+            const canvas = document.createElement('canvas');
+            const maxSize = 300; // Optimal size for thumbnails
+            const scale = Math.min(1, maxSize / Math.max(video.videoWidth, video.videoHeight));
+            canvas.width = Math.round(video.videoWidth * scale);
+            canvas.height = Math.round(video.videoHeight * scale);
+            
+            // Draw the video frame to canvas
+            const context = canvas.getContext('2d');
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Get the image data with optimized compression
+            const dataURL = canvas.toDataURL('image/jpeg', 0.7);
+            
+            // Clean up resources
+            video.removeAttribute('src');
+            video.load();
+            
+            callback(dataURL);
+        } catch (err) {
+            console.error('Error capturing video frame:', err);
+            createFallbackThumbnail();
+        }
+    };
+
+    // Handle errors
+    video.onerror = function(e) {
+        console.error(`Error loading video for thumbnail: ${url}`, e);
+        createFallbackThumbnail();
+    };
+
+    // Set the source and load
+    try {
+        video.src = url;
+        video.load();
+    } catch (err) {
+        console.error('Error setting video source:', err);
+        createFallbackThumbnail();
+    }
 }
 
 // Back to Top button function
@@ -1915,7 +1937,7 @@ function cleanupPlaceholders() {
 }
 
 // Run cleanup every 5 seconds
-setInterval(cleanupPlaceholders, 5000);
+//setInterval(cleanupPlaceholders, 5000);
 
 /**
  * Processes files sequentially with a delay between each for a smoother appearance
@@ -2117,7 +2139,6 @@ async function processFilesSequentially(files, gallery, page) {
                 
                 // Check localStorage cache first
                 const cachedThumbnail = localStorage.getItem(`video_thumb_${filename}`);
-                const cachedDuration = localStorage.getItem(`duration_${filename}`);
                 
                 if (cachedThumbnail) {
                     // Use cached thumbnail
@@ -2128,25 +2149,8 @@ async function processFilesSequentially(files, gallery, page) {
                     
                     imgElement.src = cachedThumbnail;
                 } else {
-                    // Generate video thumbnail client-side
-                    captureVideoFrame(url, function(thumbnail, duration) {
-                        try {
-                            localStorage.setItem(`video_thumb_${filename}`, thumbnail);
-                            localStorage.setItem(`duration_${filename}`, duration);
-                        } catch (e) {
-                            if (e.name === 'QuotaExceededError') {
-                                clearOldThumbnails();
-                            }
-                        }
-                        
-                        // Set image source to the new thumbnail
-                        imgElement.onload = function() {
-                            imgElement.classList.add('loaded');
-                            if (loadingElement) loadingElement.style.display = 'none';
-                        };
-                        
-                        imgElement.src = thumbnail;
-                    });
+                    // Use the new queue system instead of directly calling captureVideoFrame
+                    queueVideoThumbnail(url, filename, imgElement, loadingElement);
                 }
                 
                 // Add to fragment - this is the key fix
@@ -2415,29 +2419,29 @@ function captureVideoFrameWithPause(url, filename) {
         // If loading is paused, queue this operation
         if (loadingPaused) {
             loadingQueue.push(() => {
-                captureVideoFrame(url, (thumbnail, duration) => {
+                captureVideoFrame(url, (thumbnail) => {
                     try {
                         localStorage.setItem(`video_thumb_${filename}`, thumbnail);
-                        localStorage.setItem(`duration_${filename}`, duration);
+                       // localStorage.setItem(`duration_${filename}`, duration);
                     } catch (e) {
                         if (e.name === 'QuotaExceededError') {
                             clearOldThumbnails();
                         }
                     }
-                    resolve({ thumbnail, duration });
+                    resolve({ thumbnail });
                 });
             });
         } else {
-            captureVideoFrame(url, (thumbnail, duration) => {
+            captureVideoFrame(url, (thumbnail) => {
                 try {
                     localStorage.setItem(`video_thumb_${filename}`, thumbnail);
-                    localStorage.setItem(`duration_${filename}`, duration);
+                   // localStorage.setItem(`duration_${filename}`, duration);
                 } catch (e) {
                     if (e.name === 'QuotaExceededError') {
                         clearOldThumbnails();
                     }
                 }
-                resolve({ thumbnail, duration });
+                resolve({ thumbnail });
             });
         }
     });
@@ -2720,3 +2724,105 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Add other initialization code here
 });
+
+/**
+ * Processes the video thumbnail queue to limit concurrent loading
+ */
+function processVideoThumbnailQueue() {
+    if (videoThumbnailQueue.length === 0) {
+        isProcessingVideoThumbnails = false;
+        return;
+    }
+    
+    isProcessingVideoThumbnails = true;
+    
+    // Count active video processing
+    const activeProcessing = videoThumbnailQueue.filter(item => item.isProcessing).length;
+    
+    // Process up to the maximum concurrent limit
+    const availableSlots = MAX_CONCURRENT_VIDEO_THUMBNAILS - activeProcessing;
+    if (availableSlots <= 0) return;
+    
+    // Find the next items to process
+    const itemsToProcess = videoThumbnailQueue
+        .filter(item => !item.isProcessing && !item.isComplete)
+        .slice(0, availableSlots);
+    
+    // Process these items
+    itemsToProcess.forEach(item => {
+        item.isProcessing = true;
+        
+        // Generate the thumbnail
+        captureVideoFrame(item.url, (thumbnail) => {
+            // Cache the thumbnail
+            try {
+                safelyStoreInLocalStorage(`video_thumb_${item.filename}`, thumbnail);
+                console.log(`Video thumbnail cached for ${item.filename}`);
+                
+                // Update the image if the element still exists
+                if (item.imgElement && document.body.contains(item.imgElement)) {
+                    item.imgElement.onload = function() {
+                        item.imgElement.classList.add('loaded');
+                        if (item.loadingElement && document.body.contains(item.loadingElement)) {
+                            item.loadingElement.style.display = 'none';
+                        }
+                    };
+                    item.imgElement.src = thumbnail;
+                }
+            } catch (e) {
+                console.warn('Error storing video thumbnail:', e);
+            }
+            
+            // Mark as complete and remove from queue
+            item.isComplete = true;
+            item.isProcessing = false;
+            
+            // Process the next item in queue
+            setTimeout(processVideoThumbnailQueue, 100);
+        });
+    });
+}
+
+/**
+ * Adds a video to the thumbnail generation queue
+ * @param {string} url - URL of the video
+ * @param {string} filename - Filename for caching
+ * @param {HTMLImageElement} imgElement - Image element to update
+ * @param {HTMLElement} loadingElement - Loading element to hide when complete
+ */
+function queueVideoThumbnail(url, filename, imgElement, loadingElement) {
+    // Check if already in queue
+    const existingIndex = videoThumbnailQueue.findIndex(item => 
+        item.url === url && item.filename === filename);
+    
+    if (existingIndex >= 0) {
+        // Update the references if needed
+        if (imgElement) {
+            videoThumbnailQueue[existingIndex].imgElement = imgElement;
+        }
+        if (loadingElement) {
+            videoThumbnailQueue[existingIndex].loadingElement = loadingElement;
+        }
+        return;
+    }
+    
+    // Add to queue
+    videoThumbnailQueue.push({
+        url,
+        filename,
+        imgElement,
+        loadingElement,
+        isProcessing: false,
+        isComplete: false,
+        addedAt: Date.now()
+    });
+    
+    // Clean up old completed items
+    videoThumbnailQueue = videoThumbnailQueue.filter(item => 
+        !item.isComplete || Date.now() - item.addedAt < 60000);
+    
+    // Start processing if not already
+    if (!isProcessingVideoThumbnails) {
+        processVideoThumbnailQueue();
+    }
+}
