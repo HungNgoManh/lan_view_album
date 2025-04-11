@@ -1129,6 +1129,7 @@ function showVideoModal(url, filename, title = '') {
     video.src = url;
     video.controls = true;
     video.autoplay = true;
+    video.playsInline = true; // Prevent iOS fullscreen
     video.className = 'w-100 h-auto';
     video.id = 'activeVideoPlayer';
     videoContainer.appendChild(video);
@@ -1165,6 +1166,42 @@ function showVideoModal(url, filename, title = '') {
     // Show the modal
     const modal = new bootstrap.Modal(videoModal);
     modal.show();
+    
+    // Update the modal footer with delete button
+    const modalFooter = videoModal.querySelector('.modal-footer');
+    if (modalFooter) {
+        // Clear existing buttons
+        modalFooter.innerHTML = '';
+        
+        // Add delete button
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'btn btn-danger';
+        deleteBtn.innerHTML = '<i class="bi bi-trash"></i> Delete';
+        
+        // Add delete event handler
+        deleteBtn.addEventListener('click', function() {
+            // Close the modal first
+            const modalInstance = bootstrap.Modal.getInstance(videoModal);
+            if (modalInstance) modalInstance.hide();
+            
+            // Confirm deletion
+            if (confirm(`Are you sure you want to delete "${filename}"?`)) {
+                deleteFile(filename);
+            }
+        });
+        
+        // Add close button
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'btn btn-secondary';
+        closeBtn.innerHTML = '<i class="bi bi-x-circle"></i> Close';
+        closeBtn.setAttribute('data-bs-dismiss', 'modal');
+        
+        // Add buttons to footer
+        modalFooter.appendChild(deleteBtn);
+        modalFooter.appendChild(closeBtn);
+    }
     
     // Add a proper modal close handler
     const closeHandler = function() {
@@ -1409,6 +1446,36 @@ function captureVideoFrame(url, callback) {
             // Draw the video frame to canvas
             const context = canvas.getContext('2d');
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Check if the frame is black or nearly black
+            const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            
+            // Sample pixels to check for black frame
+            const pixelCount = data.length / 4; // RGBA values
+            const sampleSize = Math.min(pixelCount, 1000); // Check up to 1000 pixels
+            const sampleStep = Math.max(1, Math.floor(pixelCount / sampleSize));
+            
+            let blackPixelCount = 0;
+            for (let i = 0; i < data.length; i += sampleStep * 4) {
+                // Check if pixel is nearly black (very low RGB values)
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                const brightness = (r + g + b) / 3;
+                
+                if (brightness < 20) { // Consider pixels with average brightness below 20 as "black"
+                    blackPixelCount++;
+                }
+            }
+            
+            // If more than 90% of sampled pixels are black, consider it a black frame
+            const blackPixelPercentage = (blackPixelCount / sampleSize) * 100;
+            if (blackPixelPercentage > 90) {
+                console.warn(`Detected black frame for ${url}, using fallback thumbnail`);
+                createFallbackThumbnail();
+                return;
+            }
             
             // Get the image data with optimized compression
             const dataURL = canvas.toDataURL('image/jpeg', 0.7);
