@@ -30,6 +30,14 @@ const uppy = new Uppy.Uppy({ restrictions: { maxNumberOfFiles: 1000 } })
 function getOrCreateDeviceId() {
     let deviceId = localStorage.getItem('device_id');
     
+    // Check if user has set a custom device name
+    const customDeviceName = localStorage.getItem('custom_device_name');
+    
+    if (customDeviceName) {
+        // If user has set a custom name, use it as the device ID
+        return `device_${customDeviceName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
+    }
+    
     if (!deviceId) {
         // Create a device ID based on browser fingerprint
         const userAgent = navigator.userAgent;
@@ -37,9 +45,18 @@ function getOrCreateDeviceId() {
         const screenHeight = window.screen.height;
         const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const language = navigator.language;
+        const platform = navigator.platform;
+        const colorDepth = window.screen.colorDepth;
+        const pixelRatio = window.devicePixelRatio || 1;
+        const hardwareConcurrency = navigator.hardwareConcurrency || 'unknown';
+        const vendor = navigator.vendor || '';
+        
+        // Try to detect if it's a mobile device
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+        const deviceType = isMobile ? 'mobile' : 'desktop';
         
         // Create a simple hash of these values
-        const deviceSignature = `${userAgent}-${screenWidth}x${screenHeight}-${timeZone}-${language}`;
+        const deviceSignature = `${userAgent}-${screenWidth}x${screenHeight}-${timeZone}-${language}-${platform}-${colorDepth}-${pixelRatio}-${hardwareConcurrency}-${vendor}-${deviceType}`;
         
         // Create a simplified hash
         let hash = 0;
@@ -49,8 +66,16 @@ function getOrCreateDeviceId() {
             hash = hash & hash; // Convert to 32bit integer
         }
         
-        // Create a user-readable prefix
-        const prefix = 'device';
+        // Try to create a more human-readable device ID
+        let prefix = 'device';
+        
+        // Add some device type information if possible
+        if (userAgent.includes('Windows')) prefix = 'win';
+        else if (userAgent.includes('Macintosh') || userAgent.includes('Mac OS')) prefix = 'mac';
+        else if (userAgent.includes('Linux')) prefix = 'linux';
+        else if (userAgent.includes('iPhone')) prefix = 'iphone';
+        else if (userAgent.includes('iPad')) prefix = 'ipad';
+        else if (userAgent.includes('Android')) prefix = 'android';
         
         // Combine into final ID
         deviceId = `${prefix}_${Math.abs(hash).toString(16).substring(0, 8)}`;
@@ -58,9 +83,164 @@ function getOrCreateDeviceId() {
         // Save for future use
         localStorage.setItem('device_id', deviceId);
         console.log(`Created new device ID: ${deviceId}`);
+        
+        // Show a dialog to ask user to name their device (only once)
+        setTimeout(() => {
+            showDeviceNameDialog(deviceId);
+        }, 2000);
     }
     
     return deviceId;
+}
+
+// Function to show a dialog asking the user to name their device
+function showDeviceNameDialog(currentDeviceId) {
+    // Check if we've already shown this dialog
+    if (localStorage.getItem('device_name_prompted')) {
+        return;
+    }
+    
+    // Mark that we've shown the dialog
+    localStorage.setItem('device_name_prompted', 'true');
+    
+    // Create Bootstrap modal for device naming
+    const modalHtml = `
+    <div class="modal fade" id="deviceNameModal" tabindex="-1" aria-labelledby="deviceNameModalLabel" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="deviceNameModalLabel">Name Your Device</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <p>To better organize your uploads, please give this device a name.</p>
+            <p>Current device ID: <code>${currentDeviceId}</code></p>
+            <div class="mb-3">
+              <label for="deviceNameInput" class="form-label">Device Name</label>
+              <input type="text" class="form-control" id="deviceNameInput" placeholder="e.g., MyLaptop, Work PC, iPhone">
+              <div class="form-text">This helps identify which device uploaded which files.</div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Skip</button>
+            <button type="button" class="btn btn-primary" id="saveDeviceName">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    `;
+    
+    // Add the modal to the document
+    const modalContainer = document.createElement('div');
+    modalContainer.innerHTML = modalHtml;
+    document.body.appendChild(modalContainer);
+    
+    // Initialize the modal
+    const modal = new bootstrap.Modal(document.getElementById('deviceNameModal'));
+    modal.show();
+    
+    // Handle save button click
+    document.getElementById('saveDeviceName').addEventListener('click', () => {
+        const deviceName = document.getElementById('deviceNameInput').value.trim();
+        if (deviceName) {
+            // Store the custom device name
+            localStorage.setItem('custom_device_name', deviceName);
+            
+            // Generate the new device ID
+            const newDeviceId = `device_${deviceName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
+            localStorage.setItem('device_id', newDeviceId);
+            
+            console.log(`Updated device ID to: ${newDeviceId}`);
+            
+            // Show toast notification
+            const toastEl = document.getElementById('uploadToast');
+            if (toastEl) {
+                const toast = new bootstrap.Toast(toastEl);
+                document.getElementById('toastMessage').textContent = `✅ Device name set to "${deviceName}"`;
+                toast.show();
+            }
+        }
+        modal.hide();
+    });
+}
+
+// Add a function to allow users to change their device name later
+function openDeviceNameSettings() {
+    const currentDeviceId = localStorage.getItem('device_id') || 'unknown';
+    const currentCustomName = localStorage.getItem('custom_device_name') || '';
+    
+    // Create Bootstrap modal for device naming
+    const modalHtml = `
+    <div class="modal fade" id="deviceSettingsModal" tabindex="-1" aria-labelledby="deviceSettingsModalLabel" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="deviceSettingsModalLabel">Device Settings</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <p>Current device ID: <code>${currentDeviceId}</code></p>
+            <div class="mb-3">
+              <label for="deviceNameSettingsInput" class="form-label">Change Device Name</label>
+              <input type="text" class="form-control" id="deviceNameSettingsInput" value="${currentCustomName}" placeholder="e.g., MyLaptop, Work PC, iPhone">
+              <div class="form-text">This helps identify which device uploaded which files.</div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-primary" id="saveDeviceSettings">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    `;
+    
+    // Add the modal to the document
+    const modalContainer = document.createElement('div');
+    modalContainer.innerHTML = modalHtml;
+    document.body.appendChild(modalContainer);
+    
+    // Initialize the modal
+    const modal = new bootstrap.Modal(document.getElementById('deviceSettingsModal'));
+    modal.show();
+    
+    // Handle save button click
+    document.getElementById('saveDeviceSettings').addEventListener('click', () => {
+        const deviceName = document.getElementById('deviceNameSettingsInput').value.trim();
+        if (deviceName) {
+            // Store the custom device name
+            localStorage.setItem('custom_device_name', deviceName);
+            
+            // Generate the new device ID
+            const newDeviceId = `device_${deviceName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
+            localStorage.setItem('device_id', newDeviceId);
+            
+            console.log(`Updated device ID to: ${newDeviceId}`);
+            
+            // Show toast notification
+            const toastEl = document.getElementById('uploadToast');
+            if (toastEl) {
+                const toast = new bootstrap.Toast(toastEl);
+                document.getElementById('toastMessage').textContent = `✅ Device name updated to "${deviceName}"`;
+                toast.show();
+            }
+        }
+        modal.hide();
+        
+        // Clean up the modal from DOM
+        setTimeout(() => {
+            document.body.removeChild(modalContainer);
+        }, 500);
+    });
+    
+    // Clean up the modal when it's closed
+    document.getElementById('deviceSettingsModal').addEventListener('hidden.bs.modal', () => {
+        setTimeout(() => {
+            if (modalContainer.parentNode) {
+                document.body.removeChild(modalContainer);
+            }
+        }, 500);
+    });
 }
 
 // Track duplicate files for summary
@@ -2614,3 +2794,18 @@ function createPlaceholderThumbnails(count = 3) {
     
     return fragment;
 }
+
+// Add this near the end of your script where other event listeners are initialized
+document.addEventListener('DOMContentLoaded', function() {
+    // Add click handler for device settings button
+    const deviceSettingsBtn = document.getElementById('device-settings-btn');
+    if (deviceSettingsBtn) {
+        deviceSettingsBtn.addEventListener('click', function() {
+            openDeviceNameSettings();
+        });
+    }
+    
+    // Display current device ID in the console when the page loads
+    const currentDeviceId = getOrCreateDeviceId();
+    console.log('Current device ID:', currentDeviceId);
+});
