@@ -1,0 +1,35 @@
+/* Fix for bullet points in list view */
+.files-list {
+    list-style: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+.files-list li {
+    list-style: none !important;
+    list-style-type: none !important;
+    list-style-image: none !important;
+    padding-left: 0 !important;
+    margin-left: 0 !important;
+    display: block !important;
+}
+
+.files-list li::before,
+.files-list li::marker {
+    content: none !important;
+    display: none !important;
+}
+
+.file-item {
+    display: flex !important;
+    padding: 1px 1px !important;
+    align-items: center !important;
+    border-bottom: 1px solid #eee !important;
+}
+
+/* Chrome specific fix */
+@media screen and (-webkit-min-device-pixel-ratio: 0) {
+    .files-list li {
+        display: block !important;
+    }
+} 

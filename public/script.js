@@ -35,7 +35,7 @@ function getOrCreateDeviceId() {
     
     if (customDeviceName) {
         // If user has set a custom name, use it as the device ID
-        return `device_${customDeviceName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
+        return `${customDeviceName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
     }
     
     if (!deviceId) {
@@ -698,6 +698,9 @@ async function loadGallery(filter = 'all', page = 1) {
             
             // Ensure the correct filter button is active
             updateFilterButtonState(filter);
+            
+            // Update the view layout based on the filter
+            updateViewLayout(filter);
         
         // Render pagination for all tabs
         // Clear existing pagination first to prevent stale DOM references
@@ -706,12 +709,6 @@ async function loadGallery(filter = 'all', page = 1) {
         
         if (paginationContainer) {
             paginationContainer.innerHTML = '';
-            
-            // Also remove any pagination info elements
-            const existingInfo = paginationWrapper?.querySelector('.pagination-info');
-            if (existingInfo) {
-                existingInfo.remove();
-            }
             
             // Make sure the container is visible
             if (paginationWrapper) {
@@ -809,16 +806,30 @@ async function processGalleryData(data, gallery, page, filter) {
     // Keep track of processed filenames to prevent duplicates
     const processedFilenames = new Set();
     
+    // Get the target container based on current filter
+    let targetContainer = gallery;
+    if (filter === 'all') {
+        // For 'all' filter, use the list container
+        const listBody = document.getElementById('all-files-body');
+        if (listBody) {
+            targetContainer = listBody;
+        }
+    }
+    
     // Check for existing files in the gallery (to prevent duplicates on refresh)
     if (page === 1) {
         // If this is page 1, we want to clear any existing items to prevent duplicates
-        const existingItems = gallery.querySelectorAll('.real-item');
-        existingItems.forEach(item => {
-            item.remove();
-        });
+        if (filter === 'all') {
+            targetContainer.innerHTML = '';
+        } else {
+            const existingItems = gallery.querySelectorAll('.real-item');
+            existingItems.forEach(item => {
+                item.remove();
+            });
+        }
     } else {
         // For subsequent pages, track what's already in the gallery
-        const existingItems = gallery.querySelectorAll('.real-item');
+        const existingItems = targetContainer.querySelectorAll('[data-filename]');
         existingItems.forEach(item => {
             const filename = item.getAttribute('data-filename');
             if (filename) {
@@ -849,8 +860,8 @@ async function processGalleryData(data, gallery, page, filter) {
             // Create the file card
             const fileCard = await createFileCardAsync(fileObj);
             
-            // Add the file card to the gallery
-            gallery.appendChild(fileCard);
+            // Add the file card to the appropriate container
+            targetContainer.appendChild(fileCard);
         }));
         
         // No need for artificial delay between batches for better performance
@@ -977,26 +988,15 @@ function renderPagination(totalPages, currentPage, filter) {
     `;
     paginationContainer.appendChild(nextLi);
     
-    // Add pagination info above the pagination
-    const paginationInfo = document.createElement('div');
-    paginationInfo.className = 'pagination-info mb-2';
-    paginationInfo.textContent = `Showing ${startItem}-${endItem} of ${totalFiles} files`;
-    
-    // Insert before pagination - Fix the insertBefore error
-    if (paginationWrapper) {
-        // First, remove any existing pagination info to prevent duplicates
-        const existingInfo = paginationWrapper.querySelector('.pagination-info');
-        if (existingInfo) {
-            existingInfo.remove();
-        }
-        
-        // Only try to insert if paginationContainer is still a child of paginationWrapper
-        if (paginationContainer.parentNode === paginationWrapper) {
-            paginationWrapper.insertBefore(paginationInfo, paginationContainer);
-        } else {
-            // If the container relationship has changed, just append it
-            paginationWrapper.appendChild(paginationInfo);
-        }
+    // Update pagination info text in the designated element
+    const paginationInfo = document.getElementById('paginationInfo');
+    if (paginationInfo) {
+        const infoText = `Showing ${startItem}-${endItem} of ${totalFiles} files`;
+        paginationInfo.textContent = infoText;
+        paginationInfo.style.display = 'block'; // Ensure it's visible
+        console.log('Updated pagination info:', infoText);
+    } else {
+        console.warn('Pagination info element not found in DOM');
     }
 }
 
@@ -1149,74 +1149,87 @@ async function createFileCardAsync(fileObj) {
         return new Date(date).toLocaleString();
     };
 
-    // Create table row for All tab
+    // Create list item for All tab (replaces table row)
     const createTableRow = () => {
-        const tr = document.createElement('tr');
-        tr.className = 'file-row';
-        tr.setAttribute('data-filename', filename);
-        tr.style.display = 'flex';
-        tr.style.width = '100%';
-
-        const filenameTd = document.createElement('td');
-        filenameTd.style.flex = '1';
-        filenameTd.style.overflow = 'hidden';
-        filenameTd.style.textOverflow = 'ellipsis';
-        filenameTd.style.whiteSpace = 'nowrap';
-
-        const sizeTd = document.createElement('td');
-        sizeTd.style.width = '100px';
-        sizeTd.style.textAlign = 'right';
-
+        const li = document.createElement('li');
+        li.setAttribute('data-filename', filename);
+        
+        const fileItem = document.createElement('div');
+        fileItem.className = 'file-item';
+        
+        const fileName = document.createElement('div');
+        fileName.className = 'file-name';
+        
+        const fileSize = document.createElement('div');
+        fileSize.className = 'file-size';
+        
         // Format size
         const formattedSize = formatSize(fileObj.size || 0);
+        fileSize.textContent = formattedSize;
 
-        // Format truncated filename
-        const formattedFilename = truncateFilename(filename, 60);
+        // Get device width to determine truncation length
+        const isMobile = window.innerWidth < 768;
+        // Use shorter names on mobile
+        const maxLength = isMobile ? 25 : 60;
+        
+        // For mobile, show meaningful parts of the filename
+        let displayFilename = filename;
+        if (isMobile && filename.length > maxLength) {
+            // For longer filenames, keep part of beginning and end
+            const ext = filename.split('.').pop();
+            const nameWithoutExt = filename.substring(0, filename.length - ext.length - 1);
+            
+            const firstPart = nameWithoutExt.substring(0, Math.floor(maxLength * 0.6));
+            const lastPart = nameWithoutExt.substring(nameWithoutExt.length - Math.floor(maxLength * 0.2));
+            
+            displayFilename = `${firstPart}...${lastPart}.${ext}`;
+        } else {
+            displayFilename = truncateFilename(filename, maxLength);
+        }
 
         // Determine file icon and action
-            if (isImage) {
-            const fileLink = document.createElement('a');
-            fileLink.className = 'filename-link';
-            fileLink.textContent = formattedFilename;
-            fileLink.href = '#';
-            fileLink.title = filename;
+        let fileIcon = '';
+        if (isImage) {
+            fileIcon = '<i class="bi bi-image me-2 text-info"></i>';
+        } else if (isVideo) {
+            fileIcon = '<i class="bi bi-film me-2 text-primary"></i>';
+        } else {
+            fileIcon = '<i class="bi bi-file-earmark me-2 text-secondary"></i>';
+        }
+        
+        // Create the file link
+        const fileLink = document.createElement('a');
+        fileLink.className = 'filename-link';
+        fileLink.innerHTML = `${fileIcon}<span class="filename-text">${displayFilename}</span>`;
+        fileLink.href = '#';
+        fileLink.title = filename; // Full filename as tooltip
+        
+        // Set the appropriate action based on file type
+        if (isImage) {
             fileLink.onclick = (e) => {
                 e.preventDefault();
                 showImageModal(url, filename);
                 return false;
             };
-            filenameTd.appendChild(fileLink);
-            } else if (isVideo) {
-            const fileLink = document.createElement('a');
-            fileLink.className = 'filename-link';
-            fileLink.textContent = formattedFilename;
-            fileLink.href = '#';
-            fileLink.title = filename;
+        } else if (isVideo) {
             fileLink.onclick = (e) => {
                 e.preventDefault();
-                showVideoModal(url, filename, truncatedFilename);
+                showVideoModal(url, filename, displayFilename);
                 return false;
             };
-            filenameTd.appendChild(fileLink);
-            } else {
-            // Create a download link for other files
-            const fileLink = document.createElement('a');
-            fileLink.className = 'filename-link';
-            fileLink.textContent = formattedFilename;
+        } else {
             fileLink.href = url;
-            fileLink.title = filename;
             fileLink.download = filename;
-            filenameTd.appendChild(fileLink);
         }
+        
+        fileName.appendChild(fileLink);
 
-        // Display size
-        sizeTd.textContent = formattedSize;
+        // Assemble the item
+        fileItem.appendChild(fileName);
+        fileItem.appendChild(fileSize);
+        li.appendChild(fileItem);
 
-        // Append cells to row
-        tr.appendChild(filenameTd);
-        tr.appendChild(sizeTd);
-
-        return tr;
+        return li;
     };
 
     // Create grid card for image/video tabs
@@ -1639,7 +1652,13 @@ document.addEventListener('DOMContentLoaded', function() {
             filterButtons.forEach(btn => btn.classList.remove('active'));
             this.classList.add('active');
             
-            // Load gallery with this filter, always start at page 1 when changing filters
+            // Update current filter
+            currentFilter = targetFilter;
+            
+            // Update the view layout
+            updateViewLayout(targetFilter);
+            
+            // Load gallery with selected filter
             loadGallery(targetFilter, 1);
         });
     });
@@ -2698,6 +2717,9 @@ function setupFilterButtons() {
             // Update current filter
             currentFilter = filter;
             
+            // Update the view layout
+            updateViewLayout(filter);
+            
             // Load gallery with selected filter
             loadGallery(filter, 1);
         });
@@ -2712,6 +2734,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Setup filter button click handlers
     setupFilterButtons();
+    
+    // Update the view layout based on initial filter
+    updateViewLayout(initialFilter);
     
     // Load initial gallery
     loadGallery(initialFilter, 1);
@@ -3043,3 +3068,24 @@ window.addEventListener('scroll', () => {
 document.addEventListener('DOMContentLoaded', () => {
     setTimeout(preloadVisibleVideoMetadata, 1000);
 });
+
+/**
+ * Updates the view layout based on the current filter
+ * @param {string} filter - The current filter (all, image, video)
+ */
+function updateViewLayout(filter) {
+    const allFilesHeader = document.getElementById('all-files-header');
+    const gridView = document.getElementById('grid-view');
+    
+    if (allFilesHeader && gridView) {
+        if (filter === 'all') {
+            // For 'all' filter, show the list view (all-files-header)
+            allFilesHeader.classList.remove('d-none');
+            gridView.classList.add('d-none');
+        } else {
+            // For image/video filters, show the grid view
+            allFilesHeader.classList.add('d-none');
+            gridView.classList.remove('d-none');
+        }
+    }
+}

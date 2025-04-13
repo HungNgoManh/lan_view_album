@@ -11,6 +11,8 @@
     <script src="https://releases.transloadit.com/uppy/v3.3.1/uppy.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css">
+    <!-- Custom styles -->
+    <link rel="stylesheet" href="styles.css">
 
     <style>
         body {
@@ -795,6 +797,9 @@
             color: #6c757d;
             margin-bottom: 0.5rem;
             text-align: center;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+            font-weight: 500;
         }
         .pagination .page-item.ellipsis .page-link {
             background-color: transparent;
@@ -934,6 +939,42 @@
             .table td {
                 padding: 8px 10px;
             }
+            
+            /* Improve filename display on mobile */
+            .filename-link {
+                font-size: 12px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                max-width: 100%;
+                display: block;
+            }
+            
+            /* Make the size column smaller on mobile */
+            .table td:last-child {
+                width: 70px;
+                font-size: 11px;
+                padding-left: 0;
+            }
+            
+            /* Adjust column widths on mobile */
+            .table td:first-child {
+                padding-right: 5px;
+            }
+            
+            /* Add file type icons */
+            .filename-link i {
+                font-size: 14px;
+                width: 16px;
+                text-align: center;
+                opacity: 0.8;
+            }
+            
+            /* Make the filename hover effect more noticeable for touch */
+            .filename-link:active {
+                background-color: rgba(0, 123, 255, 0.1);
+                border-radius: 4px;
+            }
         }
         /* Loading message styles */
         .loading-message {
@@ -1016,6 +1057,186 @@
         .real-item {
             margin-bottom: 0 !important;
         }
+
+        /* Mobile-friendly file actions button */
+        @media (max-width: 768px) {
+            .file-action-btn {
+                display: none;
+            }
+            
+            .td-with-action {
+                position: relative;
+                padding-right: 10px !important;
+            }
+        }
+        /* Files list styles */
+        .files-list-container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            overflow: hidden;
+        }
+        
+        .list-header {
+            background-color: #f8f9fa;
+            border-bottom: 2px solid #dee2e6;
+            padding: 12px 15px;
+            font-weight: 600;
+            color: #495057;
+        }
+        
+        .filename-header {
+            flex: 1;
+        }
+        
+        .size-header {
+            width: 100px;
+            text-align: right;
+        }
+        
+        .files-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .files-list li {
+            border-bottom: 1px solid #e6dee3;
+            transition: background-color 0.2s;
+        }
+        
+        .files-list li:last-child {
+            border-bottom: none;
+        }
+        
+        .files-list li:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .file-item {
+            padding-left: 0;
+            margin-left: 0;
+            display: flex;
+            padding: 1px 1px;
+            align-items: left;
+        }
+        
+        .file-name {
+            flex: 1;
+            min-width: 0; /* Important for text-overflow to work */
+            padding-right: 15px;
+            position: relative;
+        }
+        
+        .file-size {
+            width: 100px;
+            text-align: right;
+            white-space: nowrap;
+        }
+        
+        /* Enhanced mobile file list styles */
+        @media (max-width: 768px) {
+            .file-item {
+                padding-left: 0;
+                margin-left: 0;
+            }
+            
+            .list-header {
+                padding: 1px;
+            }
+            
+            .file-name {
+                padding-right: 3px;
+            }
+            
+            .file-size {
+                width: auto;
+                font-size: 13px;
+                font-weight: 500;
+                text-align: right;
+                padding: 0;
+            }
+            
+            .filename-text {
+                font-size: 14px;
+                font-family: sans-serif;
+                max-width: 100%;
+                display: inline-block;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            
+            .filename-link {
+                display: flex;
+                align-items: left;
+                max-width: 100%;
+                padding: 8px 5px; /* Add padding for easier tapping */
+            }
+            
+            .filename-link i {
+                flex-shrink: 0;
+                margin-right: 1px;
+            }
+            
+            /* Highlight effect when tapped */
+            .filename-link:active {
+                background-color: rgba(0, 123, 255, 0.1);
+                border-radius: 4px;
+            }
+        }
+        
+        /* Ensure bullets are removed in all browsers */
+        .files-list,
+        .files-list li {
+            list-style-type: none !important;
+            list-style: none !important;
+            -webkit-padding-start: 0 !important;
+            -moz-padding-start: 0 !important;
+            padding-inline-start: 0 !important;
+            margin-left: 0 !important;
+            padding-left: 0 !important;
+        }
+
+        /* Fix list item display for all browsers */
+        #all-files-body, 
+        #all-files-body li,
+        ul.files-list,
+        ul.files-list li {
+            list-style: none !important;
+            list-style-type: none !important;
+            list-style-image: none !important;
+            list-style-position: outside !important;
+            -webkit-padding-start: 0 !important;
+            -moz-padding-start: 0 !important;
+            padding-inline-start: 0 !important;
+            margin-left: 0 !important;
+            padding-left: 0 !important;
+        }
+        
+        /* Override any browser default ::marker */
+        ul.files-list li::before,
+        ul.files-list li::marker,
+        #all-files-body li::before,
+        #all-files-body li::marker {
+            content: "" !important;
+            display: none !important;
+        }
+
+        /* Chrome on Windows bullet fix */
+        #all-files-header .files-list-container ul li {
+            display: block !important;
+            list-style: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        
+        #all-files-header .files-list-container ul li::before {
+            display: none !important;
+            content: none !important;
+        }
     </style>
 </head>
 <body class="p-3">
@@ -1061,22 +1282,14 @@
         <div id="gallery" class="row">
             <!-- Table header for All tab -->
             <div class="col-12 d-none" id="all-files-header">
-                <div class="table-responsive">
-                    <table class="table table-hover" style="width: 100%;">
-                        <colgroup>
-                            <col>
-                            <col style="width: 100px;">
-                        </colgroup>
-                        <thead>
-                            <tr>
-                                <th>Filename</th>
-                                <th style="text-align: right;">Size</th>
-                            </tr>
-                        </thead>
-                        <tbody id="all-files-body">
-                            <!-- Files will be inserted here -->
-                        </tbody>
-                    </table>
+                <div class="files-list-container">
+                    <div class="list-header d-flex">
+                        <div class="filename-header flex-grow-1">Filename</div>
+                        <div class="size-header">Size</div>
+                    </div>
+                    <ul class="files-list" id="all-files-body">
+                        <!-- Files will be inserted here -->
+                    </ul>
                 </div>
             </div>
             <!-- Grid view for Images and Videos tabs -->
@@ -1086,12 +1299,15 @@
         </div>
         
         <!-- Pagination -->
-        <div class="d-flex justify-content-center mt-4 mb-3">
+        <div class="d-flex flex-column align-items-center mt-4 mb-3">
             <nav aria-label="Page navigation">
                 <ul class="pagination" id="paginationContainer">
                     <!-- Pagination links will be inserted here -->
                 </ul>
             </nav>
+            <div class="pagination-info text-dark small mt-2 p-2 bg-light border rounded" id="paginationInfo">
+                <!-- Pagination info will be inserted here -->
+            </div>
         </div>
     </div>
   </div>
