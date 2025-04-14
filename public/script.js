@@ -1153,6 +1153,7 @@ async function createFileCardAsync(fileObj) {
     const createTableRow = () => {
         const li = document.createElement('li');
         li.setAttribute('data-filename', filename);
+        li.className = 'no-marker'; // Add class for marker removal
         
         const fileItem = document.createElement('div');
         fileItem.className = 'file-item';

@@ -886,7 +886,7 @@
             line-height: 48px; /* Vertically center content */
         }
         .file-row {
-            display: flex;
+            display: flexbox;
             width: 100%;
             height: 100%;
         }
@@ -966,7 +966,8 @@
             .filename-link i {
                 font-size: 14px;
                 width: 16px;
-                text-align: center;
+                text-align: left;
+                padding: 0 0 0 0;
                 opacity: 0.8;
             }
             
@@ -1158,7 +1159,7 @@
                         <div class="filename-header flex-grow-1">Filename</div>
                         <div class="size-header">Size</div>
                     </div>
-                    <ul class="files-list" id="all-files-body" style="list-style-type: none !important">
+                    <ul class="files-list" id="all-files-body" style="list-style: none; padding: 0; margin: 0;">
                         <!-- Files will be inserted here -->
                     </ul>
                 </div>
