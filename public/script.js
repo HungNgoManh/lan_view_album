@@ -67,7 +67,7 @@ function getOrCreateDeviceId() {
         }
         
         // Try to create a more human-readable device ID
-        let prefix = 'device';
+        let prefix = 'd_';
         
         // Add some device type information if possible
         if (userAgent.includes('Windows')) prefix = 'win';
