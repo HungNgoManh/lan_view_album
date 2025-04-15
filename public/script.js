@@ -1735,33 +1735,35 @@ function handleLoadingIndicatorClick(event) {
  * @param {Function} callback - Callback function that receives the thumbnail
  */
 function captureVideoFrame(url, callback) {
+    // Check for existing cached thumbnail first
+    const filename = url.split('/').pop();
+    const cachedThumbnail = localStorage.getItem(`video_thumb_${filename}`);
+    if (cachedThumbnail) {
+        console.log(`Using cached thumbnail for: ${filename}`);
+        setTimeout(() => callback(cachedThumbnail), 0);
+        return;
+    }
+    
     console.log(`Starting video thumbnail generation for: ${url}`);
     
     // Track retry attempts
     let retryCount = 0;
-    const MAX_RETRIES = 2;
+    const MAX_RETRIES = 1; // Reduced from 2 to 1
     
     // Use a timeout to prevent hanging on video load
     let timeoutId = setTimeout(() => {
         console.warn(`Video thumbnail generation timed out for ${url}`);
         createFallbackThumbnail();
-    }, 15000); // 15 second timeout (increased from 10s)
+    }, 8000); // Reduced from 15 seconds to 8 seconds
     
     function attemptCapture() {
         // Create a video element for thumbnail capture
         const video = document.createElement('video');
-        video.muted = true; // Ensure muted for autoplay
-        video.playsInline = true; // Better mobile support
-        video.crossOrigin = 'anonymous'; // Handle CORS if necessary
-        
-        // Try with autoplay to help on some browsers
+        video.muted = true;
+        video.playsInline = true;
+        video.crossOrigin = 'anonymous';
         video.autoplay = true;
-        
-        // Prevent stalling in some browsers
         video.setAttribute('playsinline', '');
-        video.setAttribute('webkit-playsinline', '');
-        
-        // Load key frames first
         video.preload = 'metadata';
         
         // Create fallback thumbnail if needed
@@ -1782,16 +1784,13 @@ function captureVideoFrame(url, callback) {
                 return;
             }
             
-            // Create a default thumbnail for video errors
+            // Create a default thumbnail for video errors - simplified version
             const canvas = document.createElement('canvas');
             canvas.width = 300;
             canvas.height = 200;
             const ctx = canvas.getContext('2d');
-            // Fill with gradient background
-            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-            gradient.addColorStop(0, '#f5f5f5');
-            gradient.addColorStop(1, '#e0e0e0');
-            ctx.fillStyle = gradient;
+            // Simple gray background
+            ctx.fillStyle = '#e0e0e0';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             // Add video icon
             ctx.fillStyle = '#999999';
@@ -1799,9 +1798,6 @@ function captureVideoFrame(url, callback) {
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText('▶️', canvas.width/2, canvas.height/2);
-            // Add error text
-            ctx.font = '14px sans-serif';
-            ctx.fillText('Video preview unavailable', canvas.width/2, canvas.height/2 + 40);
             
             // Clean up
             if (video) {
@@ -1810,17 +1806,25 @@ function captureVideoFrame(url, callback) {
                 video.load();
             }
             
-            console.log(`Used fallback thumbnail for: ${url} after ${retryCount} retries`);
-            callback(canvas.toDataURL('image/jpeg', 0.6));
+            const thumbnail = canvas.toDataURL('image/jpeg', 0.6);
+            console.log(`Used fallback thumbnail for: ${url}`);
+            
+            // Cache even fallback thumbnails to avoid repeated generation attempts
+            try {
+                localStorage.setItem(`video_thumb_${filename}`, thumbnail);
+            } catch (e) {
+                console.warn('Error caching fallback thumbnail:', e);
+            }
+            
+            callback(thumbnail);
         }
     
-        // Try different seek positions if initial seek fails
-        const seekPositions = [0.1, 1, 3, 5]; // Try multiple positions in the video
+        // Try fewer seek positions - optimization
+        const seekPositions = [0.5, 3]; // Reduced from [0.1, 1, 3, 5] to just 2 positions
         let currentSeekIndex = 0;
         
         function tryNextSeekPosition() {
             if (currentSeekIndex >= seekPositions.length) {
-                // We've tried all positions without success
                 console.warn(`Failed to find a good frame after trying all seek positions for ${url}`);
                 createFallbackThumbnail();
                 return;
@@ -1839,7 +1843,6 @@ function captureVideoFrame(url, callback) {
         // Set up event handlers
         video.onloadedmetadata = function() {
             console.log(`Video metadata loaded for ${url}, duration: ${video.duration}s`);
-            // Once metadata is loaded, seek to the first position
             tryNextSeekPosition();
         };
     
@@ -1854,9 +1857,9 @@ function captureVideoFrame(url, callback) {
                     return;
                 }
                 
-                // Create a smaller canvas for better performance
+                // Create a canvas for the thumbnail - optimized size
                 const canvas = document.createElement('canvas');
-                const maxSize = 300; // Optimal size for thumbnails
+                const maxSize = 200; // Reduced from 300 to 200
                 const scale = Math.min(1, maxSize / Math.max(video.videoWidth, video.videoHeight));
                 canvas.width = Math.round(video.videoWidth * scale);
                 canvas.height = Math.round(video.videoHeight * scale);
@@ -1865,58 +1868,35 @@ function captureVideoFrame(url, callback) {
                 const context = canvas.getContext('2d');
                 context.drawImage(video, 0, 0, canvas.width, canvas.height);
                 
-                // Check if the frame is black or nearly black
+                // Simplified black frame detection - better performance
                 const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
                 const data = imageData.data;
                 
-                // Sample pixels to check for black frame
-                const pixelCount = data.length / 4; // RGBA values
-                const sampleSize = Math.min(pixelCount, 1000); // Check up to 1000 pixels
+                // Sample fewer pixels - performance optimization
+                const pixelCount = data.length / 4;
+                const sampleSize = Math.min(pixelCount, 500); // Reduced from 1000 to 500
                 const sampleStep = Math.max(1, Math.floor(pixelCount / sampleSize));
                 
-                let blackPixelCount = 0;
                 let totalBrightness = 0;
                 for (let i = 0; i < data.length; i += sampleStep * 4) {
-                    // Check if pixel is nearly black (very low RGB values)
                     const r = data[i];
                     const g = data[i + 1];
                     const b = data[i + 2];
-                    const brightness = (r + g + b) / 3;
-                    
-                    totalBrightness += brightness;
-                    if (brightness < 20) { // Consider pixels with average brightness below 20 as "black"
-                        blackPixelCount++;
-                    }
+                    totalBrightness += (r + g + b) / 3;
                 }
                 
-                // If more than 90% of sampled pixels are black, consider it a black frame
-                const blackPixelPercentage = (blackPixelCount / sampleSize) * 100;
                 const avgBrightness = totalBrightness / sampleSize;
+                console.log(`Frame analysis: avg brightness: ${avgBrightness.toFixed(1)}`);
                 
-                console.log(`Frame analysis: ${blackPixelPercentage.toFixed(1)}% black pixels, avg brightness: ${avgBrightness.toFixed(1)}`);
-                
-                if (blackPixelPercentage > 85 || avgBrightness < 25) {
-                    console.warn(`Detected dark/black frame for ${url}, trying another position`);
+                // Simplified check - just look at brightness
+                if (avgBrightness < 20) {
+                    console.warn(`Detected dark frame for ${url}, trying another position`);
                     tryNextSeekPosition();
                     return;
                 }
                 
-                // Get the image data with optimized compression
-                const dataURL = canvas.toDataURL('image/jpeg', 0.7);
-                
-                // Check if the data URL is valid (should start with data:image/jpeg)
-                if (!dataURL || !dataURL.startsWith('data:image/jpeg')) {
-                    console.warn(`Invalid data URL generated for ${url}, trying another position`);
-                    tryNextSeekPosition();
-                    return;
-                }
-                
-                // Verify thumbnail is not too small (sometimes indicates an error)
-                if (dataURL.length < 1000) {
-                    console.warn(`Suspiciously small thumbnail (${dataURL.length} bytes) for ${url}, trying another position`);
-                    tryNextSeekPosition();
-                    return;
-                }
+                // Lower quality for better performance and storage
+                const dataURL = canvas.toDataURL('image/jpeg', 0.5); // Reduced from 0.7 to 0.5
                 
                 // Clean up resources
                 video.pause();
@@ -1934,29 +1914,13 @@ function captureVideoFrame(url, callback) {
         // Handle errors
         video.onerror = function(e) {
             console.error(`Error loading video for thumbnail: ${url}`, e);
+            clearTimeout(timeoutId);
             createFallbackThumbnail();
         };
         
-        // Also handle failures to seek
-        video.onseekingerror = function(e) {
-            console.error(`Error seeking in video: ${url}`, e);
-            tryNextSeekPosition();
-        };
-    
-        // Set the source and load
-        try {
-            video.src = url;
-            video.load();
-            
-            // Some browsers need a manual play to trigger events properly
-            video.play().catch(e => {
-                console.warn(`Could not play video during thumbnail generation: ${url}`, e);
-                // Continue anyway as we're just seeking for a frame
-            });
-        } catch (err) {
-            console.error('Error setting video source:', err);
-            createFallbackThumbnail();
-        }
+        // Set source and load video
+        video.src = url;
+        video.load();
     }
     
     // Start the capture process
@@ -2759,14 +2723,26 @@ function processVideoThumbnailQueue() {
     // Count active video processing
     const activeProcessing = videoThumbnailQueue.filter(item => item.isProcessing).length;
     
+    // Process fewer thumbnails concurrently for better performance
+    const MAX_CONCURRENT_VIDEO_THUMBNAILS = 1; // Reduced from previous value
+    
     // Process up to the maximum concurrent limit
     const availableSlots = MAX_CONCURRENT_VIDEO_THUMBNAILS - activeProcessing;
     if (availableSlots <= 0) return;
     
-    // Find the next items to process - prioritize retries with a short delay
+    // Prioritize visible videos first (if they have visibility data)
+    // And also prioritize retries with a short delay
     const itemsToProcess = videoThumbnailQueue
         .filter(item => !item.isProcessing && !item.isComplete && 
                (!item.lastRetryAt || Date.now() - item.lastRetryAt > 2000))
+        .sort((a, b) => {
+            // Sort by visibility first (if available)
+            if (a.isVisible && !b.isVisible) return -1;
+            if (!a.isVisible && b.isVisible) return 1;
+            
+            // Then by retry count (fewer retries first)
+            return a.retryCount - b.retryCount;
+        })
         .slice(0, availableSlots);
     
     // Process these items
@@ -2776,53 +2752,36 @@ function processVideoThumbnailQueue() {
         
         // Generate the thumbnail
         captureVideoFrame(item.url, (thumbnail) => {
-            // Check if thumbnail is the fallback/error thumbnail
-            const isFallbackThumbnail = thumbnail.includes('Video preview unavailable');
-            
-            // If it's a fallback and we can retry, do so
-            if (isFallbackThumbnail && item.retryCount < item.maxRetries) {
-                item.retryCount++;
-                item.lastRetryAt = Date.now();
-                item.isProcessing = false;
-                console.log(`Scheduling retry #${item.retryCount} for ${item.filename}`);
-                
-                // Process the next item
-                setTimeout(processVideoThumbnailQueue, 100);
-                return;
-            }
-            
-            // Cache the thumbnail
-            try {
-                safelyStoreInLocalStorage(`video_thumb_${item.filename}`, thumbnail);
-                console.log(`Video thumbnail cached for ${item.filename}`);
-                
-                // Update the image if the element still exists
-                if (item.imgElement && document.body.contains(item.imgElement)) {
-                    item.imgElement.onload = function() {
-                        item.imgElement.classList.add('loaded');
-                        if (item.loadingElement && document.body.contains(item.loadingElement)) {
-                            item.loadingElement.style.display = 'none';
-                        }
-                    };
-                    item.imgElement.src = thumbnail;
-                }
-            } catch (e) {
-                console.warn('Error storing video thumbnail:', e);
-            }
-            
-            // Mark as complete and remove from queue
+            // Update the queue status
             item.isComplete = true;
             item.isProcessing = false;
             
-            // Process the next item in queue
-            setTimeout(processVideoThumbnailQueue, 100);
+            // Update the image if the element still exists
+            if (item.imgElement && document.body.contains(item.imgElement)) {
+                item.imgElement.onload = function() {
+                    item.imgElement.classList.add('loaded');
+                    if (item.loadingElement && document.body.contains(item.loadingElement)) {
+                        item.loadingElement.style.display = 'none';
+                    }
+                };
+                item.imgElement.src = thumbnail;
+            }
+            
+            // Process the next item after a short delay
+            setTimeout(processVideoThumbnailQueue, 50); // Reduced from 100ms to 50ms
         });
     });
     
     // If no items were processed but there are items in the queue, 
     // schedule another check after a short delay
     if (itemsToProcess.length === 0 && videoThumbnailQueue.length > 0) {
-        setTimeout(processVideoThumbnailQueue, 1000);
+        setTimeout(processVideoThumbnailQueue, 500); // Reduced from 1000ms to 500ms
+    }
+    
+    // Clean up completed items periodically (every 10 calls)
+    if (Math.random() < 0.1) {
+        videoThumbnailQueue = videoThumbnailQueue.filter(item => 
+            !item.isComplete || Date.now() - item.addedAt < 10000); // 10 seconds instead of 60
     }
 }
 
@@ -3058,14 +3017,8 @@ function preloadVisibleVideoMetadata() {
     });
 }
 
-// Call this function periodically during scrolling
-let preloadDebounceTimer = null;
-window.addEventListener('scroll', () => {
-    if (preloadDebounceTimer) clearTimeout(preloadDebounceTimer);
-    preloadDebounceTimer = setTimeout(preloadVisibleVideoMetadata, 200);
-});
-
-// Also call on initial load
+// Since we're using pagination now, we don't need to preload on scroll
+// Only preload on initial page load
 document.addEventListener('DOMContentLoaded', () => {
     setTimeout(preloadVisibleVideoMetadata, 1000);
 });
