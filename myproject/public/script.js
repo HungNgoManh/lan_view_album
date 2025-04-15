@@ -487,7 +487,7 @@ let isProcessingVideoThumbnails = false;
 const MAX_CONCURRENT_VIDEO_THUMBNAILS = 1; // Limit concurrent video processing
 
 // Update the loadGallery function to handle sequential loading
-async function loadGallery(filter = 'all', page = 1, maintainScroll = false) {
+async function loadGallery(filter = 'all', page = 1) {
     // Prevent duplicate loading requests
     if (isLoading) {
         console.log(`Skipping duplicate loading request (filter: ${filter}, page: ${page})`);
@@ -495,35 +495,17 @@ async function loadGallery(filter = 'all', page = 1, maintainScroll = false) {
     }
     isLoading = true;
 
-    // Store scroll position as a percentage if we need to maintain scroll
-    let scrollPercentage = 0;
-    if (maintainScroll) {
-        const scrollPosition = window.scrollY;
-        const documentHeight = Math.max(
-            document.body.scrollHeight, 
-            document.body.offsetHeight,
-            document.documentElement.clientHeight,
-            document.documentElement.scrollHeight,
-            document.documentElement.offsetHeight
-        );
-        scrollPercentage = scrollPosition / documentHeight;
-        console.log(`Storing scroll percentage: ${(scrollPercentage * 100).toFixed(2)}%`);
-    }
-
     // Update current filter
     currentFilter = filter;
     currentPage = page;
 
-    // Only scroll to top if this is a filter change or explicitly requested
-    // Don't scroll if maintainScroll is true (for pagination clicks)
-    if (!maintainScroll) {
-        window.scrollTo({
-            top: 0,
-            behavior: 'smooth'
-        });
-    }
+    // Scroll to top when changing pages
+    window.scrollTo({
+       // top: 0,
+        behavior: 'smooth'
+    });
 
-    console.log(`Loading gallery with filter: ${filter}, page: ${page}, maintainScroll: ${maintainScroll}`);
+    console.log(`Loading gallery with filter: ${filter}, page: ${page}`);
 
     // Get the gallery element
     const gallery = document.getElementById('gallery');
@@ -645,7 +627,7 @@ async function loadGallery(filter = 'all', page = 1, maintainScroll = false) {
             updateTabLabels(standardizedData.counts);
             
             // Process the gallery with standardized data
-        await processGalleryData(standardizedData, gallery, page, filter, maintainScroll);
+        await processGalleryData(standardizedData, gallery, page, filter);
     } catch (error) {
             console.error('Error loading gallery:', error);
             
@@ -708,17 +690,17 @@ async function loadGallery(filter = 'all', page = 1, maintainScroll = false) {
             pageLoadingIndicator.remove();
         }
             
-        // Re-enable filter buttons
-        filterButtons.forEach(btn => btn.disabled = false);
+            // Re-enable filter buttons
+            filterButtons.forEach(btn => btn.disabled = false);
             
-        // Reset loading flag
-        isLoading = false;
+            // Reset loading flag
+            isLoading = false;
             
-        // Ensure the correct filter button is active
-        updateFilterButtonState(filter);
+            // Ensure the correct filter button is active
+            updateFilterButtonState(filter);
             
-        // Update the view layout based on the filter
-        updateViewLayout(filter);
+            // Update the view layout based on the filter
+            updateViewLayout(filter);
         
         // Render pagination for all tabs
         // Clear existing pagination first to prevent stale DOM references
@@ -736,40 +718,12 @@ async function loadGallery(filter = 'all', page = 1, maintainScroll = false) {
             // Now render the pagination
             renderPagination(totalPages, currentPage, filter);
         }
-        
-        // Restore scroll position based on the saved percentage if needed
-        if (maintainScroll && scrollPercentage > 0) {
-            // Wait for DOM to be updated
-            setTimeout(() => {
-                // Calculate new document height
-                const newDocumentHeight = Math.max(
-                    document.body.scrollHeight, 
-                    document.body.offsetHeight,
-                    document.documentElement.clientHeight,
-                    document.documentElement.scrollHeight,
-                    document.documentElement.offsetHeight
-                );
-                
-                // Apply the same percentage to the new height
-                const newScrollPosition = Math.round(newDocumentHeight * scrollPercentage);
-                
-                // Scroll to the new position
-                window.scrollTo({
-                    top: newScrollPosition,
-                    behavior: 'auto' // Use 'auto' to prevent visible scrolling
-                });
-                
-                console.log(`Restored to same relative position: ${(scrollPercentage * 100).toFixed(2)}%, scroll position: ${newScrollPosition}px`);
-            }, 100);
-        }
     }
 }
 
 // Update processGalleryData to handle one-by-one loading
-async function processGalleryData(data, gallery, page, filter, maintainScroll = false) {
-    console.log(`Processing gallery data: ${data.files?.length || 0} files, page ${page}, filter ${filter}, total files: ${data.totalFiles}, total pages: ${data.totalPages}, maintainScroll: ${maintainScroll}`);
-    
-    // No need to store the scroll position since we're keeping the page still
+async function processGalleryData(data, gallery, page, filter) {
+    console.log(`Processing gallery data: ${data.files?.length || 0} files, page ${page}, filter ${filter}, total files: ${data.totalFiles}, total pages: ${data.totalPages}`);
     
     // Debug: Check if files have date information for sorting
     if (data.files && data.files.length > 0) {
@@ -917,8 +871,6 @@ async function processGalleryData(data, gallery, page, filter, maintainScroll = 
     const remainingPlaceholders = gallery.querySelectorAll('.placeholder-thumbnail');
     remainingPlaceholders.forEach(placeholder => placeholder.remove());
     
-    // No scroll restoration - leave the page exactly where it is
-    
     // Return when all files are processed
     return Promise.resolve();
 }
@@ -952,24 +904,12 @@ function renderPagination(totalPages, currentPage, filter) {
     // Add "Previous" button
     const prevLi = document.createElement('li');
     prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
-    
-    const prevLink = document.createElement('a');
-    prevLink.className = 'page-link';
-    prevLink.href = '#';
-    prevLink.setAttribute('aria-label', 'Previous');
-    prevLink.innerHTML = '<span aria-hidden="true">&laquo;</span>';
-    
-    // Add event listener directly instead of using onclick attribute
-    if (currentPage !== 1) {
-        prevLink.addEventListener('click', function(e) {
-            e.preventDefault();
-            // Store current scroll position before loading new page
-            const scrollY = window.scrollY;
-            loadGallery(filter, currentPage - 1, true);
-        });
-    }
-    
-    prevLi.appendChild(prevLink);
+    prevLi.innerHTML = `
+        <a class="page-link" href="#" aria-label="Previous" 
+           ${currentPage !== 1 ? `onclick="loadGallery('${filter}', ${currentPage - 1}); return false;"` : ''}>
+            <span aria-hidden="true">&laquo;</span>
+        </a>
+    `;
     paginationContainer.appendChild(prevLi);
     
     // Determine which page numbers to show
@@ -992,17 +932,9 @@ function renderPagination(totalPages, currentPage, filter) {
     if (startPage > 1) {
         const firstLi = document.createElement('li');
         firstLi.className = 'page-item';
-        
-        const firstLink = document.createElement('a');
-        firstLink.className = 'page-link';
-        firstLink.href = '#';
-        firstLink.textContent = '1';
-        firstLink.addEventListener('click', function(e) {
-            e.preventDefault();
-            loadGallery(filter, 1, true);
-        });
-        
-        firstLi.appendChild(firstLink);
+        firstLi.innerHTML = `
+            <a class="page-link" href="#" onclick="loadGallery('${filter}', 1); return false;">1</a>
+        `;
         paginationContainer.appendChild(firstLi);
         
         // Add ellipsis if needed
@@ -1018,20 +950,12 @@ function renderPagination(totalPages, currentPage, filter) {
     for (let i = startPage; i <= endPage; i++) {
         const pageLi = document.createElement('li');
         pageLi.className = `page-item ${i === currentPage ? 'active' : ''}`;
-        
-        const pageLink = document.createElement('a');
-        pageLink.className = 'page-link';
-        pageLink.href = '#';
-        pageLink.textContent = i;
-        
-        if (i !== currentPage) {
-            pageLink.addEventListener('click', function(e) {
-                e.preventDefault();
-                loadGallery(filter, i, true);
-            });
-        }
-        
-        pageLi.appendChild(pageLink);
+        pageLi.innerHTML = `
+            <a class="page-link" href="#" 
+               ${i !== currentPage ? `onclick="loadGallery('${filter}', ${i}); return false;"` : ''}>
+                ${i}
+            </a>
+        `;
         paginationContainer.appendChild(pageLi);
     }
     
@@ -1047,38 +971,21 @@ function renderPagination(totalPages, currentPage, filter) {
         
         const lastLi = document.createElement('li');
         lastLi.className = 'page-item';
-        
-        const lastLink = document.createElement('a');
-        lastLink.className = 'page-link';
-        lastLink.href = '#';
-        lastLink.textContent = totalPages;
-        lastLink.addEventListener('click', function(e) {
-            e.preventDefault();
-            loadGallery(filter, totalPages, true);
-        });
-        
-        lastLi.appendChild(lastLink);
+        lastLi.innerHTML = `
+            <a class="page-link" href="#" onclick="loadGallery('${filter}', ${totalPages}); return false;">${totalPages}</a>
+        `;
         paginationContainer.appendChild(lastLi);
     }
     
     // Add "Next" button
     const nextLi = document.createElement('li');
     nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
-    
-    const nextLink = document.createElement('a');
-    nextLink.className = 'page-link';
-    nextLink.href = '#';
-    nextLink.setAttribute('aria-label', 'Next');
-    nextLink.innerHTML = '<span aria-hidden="true">&raquo;</span>';
-    
-    if (currentPage !== totalPages) {
-        nextLink.addEventListener('click', function(e) {
-            e.preventDefault();
-            loadGallery(filter, currentPage + 1, true);
-        });
-    }
-    
-    nextLi.appendChild(nextLink);
+    nextLi.innerHTML = `
+        <a class="page-link" href="#" aria-label="Next" 
+           ${currentPage !== totalPages ? `onclick="loadGallery('${filter}', ${currentPage + 1}); return false;"` : ''}>
+            <span aria-hidden="true">&raquo;</span>
+        </a>
+    `;
     paginationContainer.appendChild(nextLi);
     
     // Update pagination info text in the designated element
@@ -2213,8 +2120,6 @@ async function processFilesSequentially(files, gallery, page) {
     const remainingPlaceholders = gallery.querySelectorAll('.placeholder-thumbnail');
     remainingPlaceholders.forEach(placeholder => placeholder.remove());
     
-    // No scroll restoration - leave the page exactly where it is
-    
     // Return when all files are processed
     return Promise.resolve();
 }
@@ -2780,9 +2685,8 @@ function setupFilterButtons() {
             // Update the view layout
             updateViewLayout(filter);
             
-            // Load gallery with selected filter - explicitly set maintainScroll to false
-            // This ensures we scroll to top when changing filters
-            loadGallery(filter, 1, false);
+            // Load gallery with selected filter
+            loadGallery(filter, 1);
         });
     });
 }
