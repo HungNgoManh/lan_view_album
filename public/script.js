@@ -484,7 +484,7 @@ let loadingQueue = [];
 // Add these variables at the top of your script file
 let videoThumbnailQueue = [];
 let isProcessingVideoThumbnails = false;
-const MAX_CONCURRENT_VIDEO_THUMBNAILS = 2; // Limit concurrent video processing
+const MAX_CONCURRENT_VIDEO_THUMBNAILS = 1; // Limit concurrent video processing
 
 // Update the loadGallery function to handle sequential loading
 async function loadGallery(filter = 'all', page = 1) {
@@ -501,7 +501,7 @@ async function loadGallery(filter = 'all', page = 1) {
 
     // Scroll to top when changing pages
     window.scrollTo({
-        top: 0,
+       // top: 0,
         behavior: 'smooth'
     });
 
