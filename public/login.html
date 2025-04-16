@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login - My Cloud</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css">
+    <!-- Custom styles -->
+    <link rel="stylesheet" href="styles.css">
+
+    <style>
+        body {
+            background-color: #f9f9f9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .login-container {
+            max-width: 400px;
+            width: 100%;
+            padding: 30px;
+            background-color: #fff;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+        .login-logo {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+        .login-logo img {
+            max-width: 150px;
+            height: auto;
+        }
+        .login-title {
+            font-size: 28px;
+            font-weight: 600;
+            text-align: center;
+            margin-bottom: 25px;
+            color: #007AFF;
+        }
+        .login-form .form-control {
+            border-radius: 8px;
+            padding: 12px 15px;
+            font-size: 16px;
+            border: 1px solid #e1e1e1;
+            margin-bottom: 20px;
+        }
+        .login-form .form-label {
+            font-weight: 500;
+            color: #555;
+        }
+        .login-btn {
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 500;
+            margin-top: 10px;
+            background-color: #007AFF;
+            border: none;
+        }
+        .login-btn:hover {
+            background-color: #0056b3;
+        }
+        .login-remember {
+            margin-bottom: 20px;
+        }
+        .login-footer {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 14px;
+            color: #777;
+        }
+        .alert {
+            border-radius: 8px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-md-6 col-lg-5">
+                <div class="login-container">
+                    <div class="login-logo">
+                        <img src="logo.png" alt="My Cloud Logo">
+                    </div>
+                    <h1 class="login-title">Sign In</h1>
+                    
+                    <div id="loginAlert" class="alert alert-danger d-none" role="alert">
+                        <i class="bi bi-exclamation-circle-fill me-2"></i>
+                        <span id="loginAlertMessage">Invalid username or password</span>
+                    </div>
+                    
+                    <form id="loginForm" class="login-form">
+                        <div class="mb-3">
+                            <label for="username" class="form-label">Username</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-person"></i></span>
+                                <input type="text" class="form-control" id="username" placeholder="Enter your username" required>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="password" class="form-label">Password</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-lock"></i></span>
+                                <input type="password" class="form-control" id="password" placeholder="Enter your password" required>
+                                <button class="btn btn-outline-secondary" type="button" id="togglePassword">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="form-check login-remember">
+                            <input class="form-check-input" type="checkbox" value="" id="rememberMe">
+                            <label class="form-check-label" for="rememberMe">
+                                Remember me
+                            </label>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary login-btn">
+                            <i class="bi bi-box-arrow-in-right me-2"></i>Sign In
+                        </button>
+                    </form>
+                    
+                    <div class="login-footer">
+                        <p>Local Area Network Photo & Video Album</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer"></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check if already logged in
+            const authToken = localStorage.getItem('auth_token');
+            if (authToken) {
+                // Redirect to main page if already logged in
+                window.location.href = '/';
+            }
+            
+            // Toggle password visibility
+            const togglePassword = document.getElementById('togglePassword');
+            const passwordField = document.getElementById('password');
+            
+            togglePassword.addEventListener('click', function() {
+                const type = passwordField.getAttribute('type') === 'password' ? 'text' : 'password';
+                passwordField.setAttribute('type', type);
+                this.querySelector('i').classList.toggle('bi-eye');
+                this.querySelector('i').classList.toggle('bi-eye-slash');
+            });
+            
+            // Handle form submission
+            const loginForm = document.getElementById('loginForm');
+            const loginAlert = document.getElementById('loginAlert');
+            const loginAlertMessage = document.getElementById('loginAlertMessage');
+            
+            loginForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const username = document.getElementById('username').value;
+                const password = document.getElementById('password').value;
+                const rememberMe = document.getElementById('rememberMe').checked;
+                
+                // Hide any previous alerts
+                loginAlert.classList.add('d-none');
+                
+                // Call the server API
+                authenticateUser(username, password, rememberMe);
+            });
+            
+            function authenticateUser(username, password, rememberMe) {
+                // Show loading state
+                const loginBtn = document.querySelector('.login-btn');
+                const originalBtnText = loginBtn.innerHTML;
+                loginBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Signing in...';
+                loginBtn.disabled = true;
+                
+                // Call the server API
+                fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Store token in localStorage
+                        localStorage.setItem('auth_token', data.token);
+                        
+                        // Calculate expiry if remember me is checked
+                        const tokenExpiry = rememberMe ? Date.now() + (30 * 24 * 60 * 60 * 1000) : null; // 30 days or null
+                        
+                        // Store auth info
+                        const authInfo = {
+                            token: data.token,
+                            username: data.username,
+                            isAdmin: data.isAdmin,
+                            expires: tokenExpiry
+                        };
+                        
+                        localStorage.setItem('auth_info', JSON.stringify(authInfo));
+                        
+                        // Redirect to main page
+                        window.location.href = '/';
+                    } else {
+                        // Show error message
+                        loginAlertMessage.textContent = data.message || 'Invalid username or password';
+                        loginAlert.classList.remove('d-none');
+                        
+                        // Reset button
+                        loginBtn.innerHTML = originalBtnText;
+                        loginBtn.disabled = false;
+                    }
+                })
+                .catch(error => {
+                    console.error('Login error:', error);
+                    loginAlertMessage.textContent = 'An error occurred. Please try again.';
+                    loginAlert.classList.remove('d-none');
+                    
+                    // Reset button
+                    loginBtn.innerHTML = originalBtnText;
+                    loginBtn.disabled = false;
+                });
+            }
+            
+            function generateToken() {
+                // Generate a simple random token
+                // In a real app, this would be handled securely by the server
+                return Math.random().toString(36).substring(2, 15) + 
+                       Math.random().toString(36).substring(2, 15);
+            }
+            
+            // Create toast function
+            window.showToast = function(type, message) {
+                const toastContainer = document.getElementById('toastContainer');
+                
+                const toast = document.createElement('div');
+                toast.className = `toast align-items-center text-white bg-${type} border-0`;
+                toast.setAttribute('role', 'alert');
+                toast.setAttribute('aria-live', 'assertive');
+                toast.setAttribute('aria-atomic', 'true');
+                
+                toast.innerHTML = `
+                    <div class="d-flex">
+                        <div class="toast-body">
+                            <i class="bi bi-info-circle me-2"></i>
+                            ${message}
+                        </div>
+                        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                    </div>
+                `;
+                
+                toastContainer.appendChild(toast);
+                
+                const bsToast = new bootstrap.Toast(toast, {
+                    delay: 3000
+                });
+                
+                bsToast.show();
+                
+                // Remove the toast after it's hidden
+                toast.addEventListener('hidden.bs.toast', function() {
+                    toast.remove();
+                });
+            };
+        });
+    </script>
+</body>
+</html> 

@@ -15,13 +15,24 @@ const THUMB_DIR = path.join(__dirname, 'public/thumbnails');
 
 // Ensure upload folders exist
 fs.ensureDirSync(UPLOAD_DIR);
-`fs.ensureDirSync(THUMB_DIR);`
+fs.ensureDirSync(THUMB_DIR);
 
 app.use(cors());
 app.use(express.static('public'));
 app.use(express.json());
 
+// Define specific routes for HTML pages
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public/index.html'));
+});
 
+app.get('/login', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public/login.html'));
+});
+
+app.get('/users', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public/users.html'));
+});
 
 // Configure multer for disk storage
 const storage = multer.diskStorage({
@@ -315,6 +326,178 @@ app.post('/rename', async (req, res) => {
         await fs.rename(oldThumb, newThumb);
     }
 
+    res.json({ success: true });
+});
+
+// Authentication endpoints - add after the other routes
+// Simple in-memory user storage (replace with database in production)
+let users = [
+    { username: 'admin', password: 'admin123', isAdmin: true }
+];
+
+// For token storage
+const tokens = new Map();
+
+// Login endpoint
+app.post('/api/login', (req, res) => {
+    const { username, password } = req.body;
+    
+    // Check if user exists
+    const user = users.find(u => 
+        u.username === username && u.password === password);
+    
+    if (!user) {
+        return res.status(401).json({ 
+            success: false, 
+            message: 'Invalid username or password' 
+        });
+    }
+    
+    // Generate a token
+    const token = Math.random().toString(36).substring(2, 15) + 
+                 Math.random().toString(36).substring(2, 15);
+    
+    // Store token (in production, use Redis or a proper session store)
+    tokens.set(token, {
+        username: user.username,
+        isAdmin: user.isAdmin,
+        created: Date.now()
+    });
+    
+    res.json({
+        success: true,
+        token,
+        username: user.username,
+        isAdmin: user.isAdmin
+    });
+});
+
+// Logout endpoint
+app.post('/api/logout', (req, res) => {
+    const { token } = req.body;
+    
+    if (token && tokens.has(token)) {
+        tokens.delete(token);
+    }
+    
+    res.json({ success: true });
+});
+
+// Get users endpoint (admin only)
+app.get('/api/users', (req, res) => {
+    const token = req.headers.authorization;
+    
+    // Check token
+    if (!token || !tokens.has(token) || !tokens.get(token).isAdmin) {
+        return res.status(401).json({ 
+            success: false, 
+            message: 'Unauthorized' 
+        });
+    }
+    
+    // Return users without passwords
+    const safeUsers = users.map(({ username, isAdmin }) => ({ 
+        username, 
+        isAdmin 
+    }));
+    
+    res.json({ success: true, users: safeUsers });
+});
+
+// Create user endpoint (admin only)
+app.post('/api/users', (req, res) => {
+    const token = req.headers.authorization;
+    const { username, password, isAdmin } = req.body;
+    
+    // Check token
+    if (!token || !tokens.has(token) || !tokens.get(token).isAdmin) {
+        return res.status(401).json({ 
+            success: false, 
+            message: 'Unauthorized' 
+        });
+    }
+    
+    // Check if username already exists
+    if (users.some(u => u.username === username)) {
+        return res.status(400).json({ 
+            success: false, 
+            message: 'Username already exists' 
+        });
+    }
+    
+    // Add new user
+    users.push({ username, password, isAdmin: !!isAdmin });
+    
+    res.json({ success: true });
+});
+
+// Update user endpoint (admin only)
+app.put('/api/users/:username', (req, res) => {
+    const token = req.headers.authorization;
+    const { username } = req.params;
+    const { password, isAdmin } = req.body;
+    
+    // Check token
+    if (!token || !tokens.has(token) || !tokens.get(token).isAdmin) {
+        return res.status(401).json({ 
+            success: false, 
+            message: 'Unauthorized' 
+        });
+    }
+    
+    // Find user
+    const userIndex = users.findIndex(u => u.username === username);
+    if (userIndex === -1) {
+        return res.status(404).json({ 
+            success: false, 
+            message: 'User not found' 
+        });
+    }
+    
+    // Update user
+    if (password) {
+        users[userIndex].password = password;
+    }
+    
+    if (typeof isAdmin === 'boolean') {
+        users[userIndex].isAdmin = isAdmin;
+    }
+    
+    res.json({ success: true });
+});
+
+// Delete user endpoint (admin only)
+app.delete('/api/users/:username', (req, res) => {
+    const token = req.headers.authorization;
+    const { username } = req.params;
+    
+    // Check token
+    if (!token || !tokens.has(token) || !tokens.get(token).isAdmin) {
+        return res.status(401).json({ 
+            success: false, 
+            message: 'Unauthorized' 
+        });
+    }
+    
+    // Prevent deleting the current user
+    if (tokens.get(token).username === username) {
+        return res.status(400).json({ 
+            success: false, 
+            message: 'Cannot delete your own account' 
+        });
+    }
+    
+    // Find and remove user
+    const userIndex = users.findIndex(u => u.username === username);
+    if (userIndex === -1) {
+        return res.status(404).json({ 
+            success: false, 
+            message: 'User not found' 
+        });
+    }
+    
+    users.splice(userIndex, 1);
+    
     res.json({ success: true });
 });
 

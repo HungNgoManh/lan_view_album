@@ -1257,5 +1257,99 @@
 <button id="backToTopBtn" class="btn btn-primary position-fixed bottom-0 end-0 m-4 d-none">
     <i class="bi bi-arrow-up"></i>
 </button>
+
+<!-- Add right after <script> tag in index.html, before any other code -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Check authentication
+    checkAuth();
+    
+    // Rest of the existing initialization code...
+});
+
+// Authentication functions
+function checkAuth() {
+    const authToken = localStorage.getItem('auth_token');
+    const authInfo = JSON.parse(localStorage.getItem('auth_info') || '{}');
+    
+    // Check if user is logged in
+    if (!authToken || !authInfo.token || authToken !== authInfo.token) {
+        // Not logged in, redirect to login page
+        window.location.href = '/login.html';
+        return;
+    }
+    
+    // Check token expiry
+    if (authInfo.expires && Date.now() > authInfo.expires) {
+        // Token expired, clear and redirect to login
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('auth_info');
+        window.location.href = '/login.html';
+        return;
+    }
+    
+    // Update UI with user info
+    updateUserMenu(authInfo);
+}
+
+function updateUserMenu(authInfo) {
+    // Find navbar or create user menu if it doesn't exist
+    const navbar = document.querySelector('.navbar-nav');
+    if (navbar) {
+        // Add user menu dropdown
+        const userMenuHtml = `
+            <li class="nav-item dropdown ms-3">
+                <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button"
+                   data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="bi bi-person-circle me-1"></i> ${authInfo.username}
+                </a>
+                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                    ${authInfo.isAdmin ? 
+                        `<li><a class="dropdown-item" href="/users.html">
+                            <i class="bi bi-people me-2"></i> User Management
+                        </a></li>
+                        <li><hr class="dropdown-divider"></li>` 
+                        : ''}
+                    <li><a class="dropdown-item" href="#" id="logoutBtn">
+                        <i class="bi bi-box-arrow-right me-2"></i> Logout
+                    </a></li>
+                </ul>
+            </li>
+        `;
+        
+        // Add to navbar
+        navbar.insertAdjacentHTML('beforeend', userMenuHtml);
+        
+        // Add logout handler
+        document.getElementById('logoutBtn').addEventListener('click', function(e) {
+            e.preventDefault();
+            logout();
+        });
+    }
+}
+
+function logout() {
+    const authToken = localStorage.getItem('auth_token');
+    
+    // Call the API to logout
+    fetch('/api/logout', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ token: authToken })
+    })
+    .then(response => response.json())
+    .catch(error => console.error('Logout error:', error))
+    .finally(() => {
+        // Clear auth data regardless of API success/failure
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('auth_info');
+        
+        // Redirect to login page
+        window.location.href = '/login.html';
+    });
+}
+</script>
 </body>
 </html>
