@@ -185,6 +185,14 @@ function openDeviceNameSettings() {
               <input type="text" class="form-control" id="deviceNameSettingsInput" value="${currentCustomName}" placeholder="e.g., MyLaptop, Work PC, iPhone">
               <div class="form-text">This helps identify which device uploaded which files.</div>
             </div>
+            <hr>
+            <div class="mt-4">
+              <h6>Account</h6>
+              <p class="small text-muted mb-3">Current user: <strong>${JSON.parse(localStorage.getItem('auth_info') || '{}').username || 'Unknown'}</strong></p>
+              <button type="button" class="btn btn-danger" id="logoutBtnSettings">
+                <i class="bi bi-box-arrow-right me-2"></i>Logout
+              </button>
+            </div>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -231,6 +239,13 @@ function openDeviceNameSettings() {
         setTimeout(() => {
             document.body.removeChild(modalContainer);
         }, 500);
+    });
+    
+    // Handle logout button click
+    document.getElementById('logoutBtnSettings').addEventListener('click', () => {
+        modal.hide();
+        // Call the logout function
+        logout();
     });
     
     // Clean up the modal when it's closed
