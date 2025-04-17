@@ -2760,6 +2760,63 @@ function safelyStoreInLocalStorage(key, value) {
 }
 
 /**
+ * Cleans up old thumbnails from localStorage to free up space
+ * @returns {boolean} True if cleanup was performed
+ */
+function clearOldThumbnails() {
+    const keys = Object.keys(localStorage);
+    
+    // Find all thumbnail keys
+    const thumbnailKeys = keys.filter(key => 
+        key.startsWith('img_thumb_') || 
+        key.startsWith('video_thumb_')
+    );
+    
+    // Find all duration keys
+    const durationKeys = keys.filter(key => key.startsWith('duration_'));
+    
+    console.log(`Storage management: ${thumbnailKeys.length} thumbnails found in localStorage`);
+    
+    // Calculate total storage used by thumbnails
+    let totalBytes = 0;
+    thumbnailKeys.forEach(key => {
+        const item = localStorage.getItem(key);
+        if (item) {
+            totalBytes += item.length;
+        }
+    });
+    
+    const totalMB = (totalBytes / 1024 / 1024).toFixed(2);
+    console.log(`Thumbnail storage: ${totalMB} MB used`);
+    
+    // If we have a lot of thumbnails or we're using significant space, clean up
+    if (thumbnailKeys.length > 50 || totalBytes > 2 * 1024 * 1024) {
+        // Sort by key to remove older ones first (assuming timestamps in keys)
+        thumbnailKeys.sort();
+        
+        // Remove 50% of thumbnails
+        const removeCount = Math.floor(thumbnailKeys.length * 0.5);
+        console.log(`Storage cleanup: Removing ${removeCount} thumbnails from localStorage`);
+        
+        for (let i = 0; i < removeCount; i++) {
+            localStorage.removeItem(thumbnailKeys[i]);
+        }
+        
+        // Also cleanup duration keys without matching thumbnails
+        durationKeys.forEach(durationKey => {
+            const filename = durationKey.replace('duration_', '');
+            if (!localStorage.getItem(`video_thumb_${filename}`)) {
+                localStorage.removeItem(durationKey);
+            }
+        });
+        
+        return true; // Return true to indicate cleaning was performed
+    }
+    
+    return false; // Return false to indicate no cleaning was needed
+}
+
+/**
  * Updates the active state of filter buttons based on the selected filter
  * @param {string} filter - The current filter to set as active
  */
