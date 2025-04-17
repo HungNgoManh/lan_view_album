@@ -172,31 +172,28 @@ function openDeviceNameSettings() {
     // Create Bootstrap modal for device naming
     const modalHtml = `
     <div class="modal fade" id="deviceSettingsModal" tabindex="-1" aria-labelledby="deviceSettingsModalLabel" aria-hidden="true">
-      <div class="modal-dialog">
-        <div class="modal-content">
+      <div class="modal-dialog modal-sm">  <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title" id="deviceSettingsModalLabel">Device Settings</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
-          <div class="modal-body">
-            <p>Current device ID: <code>${currentDeviceId}</code></p>
-            <div class="mb-3">
-              <label for="deviceNameSettingsInput" class="form-label">Change Device Name</label>
-              <input type="text" class="form-control" id="deviceNameSettingsInput" value="${currentCustomName}" placeholder="e.g., MyLaptop, Work PC, iPhone">
-              <div class="form-text">This helps identify which device uploaded which files.</div>
-            </div>
-            <hr>
-            <div class="mt-4">
-              <h6>Account</h6>
-              <p class="small text-muted mb-3">Current user: <strong>${JSON.parse(localStorage.getItem('auth_info') || '{}').username || 'Unknown'}</strong></p>
-              <button type="button" class="btn btn-danger" id="logoutBtnSettings">
-                <i class="bi bi-box-arrow-right me-2"></i>Logout
-              </button>
+          <div class="modal-body p-3">  <p class="mt-0">Current device ID: <code>${currentDeviceId}</code></p>
+            <div class="mb-1">
+              <label for="deviceNameSettingsInput" class="form-label mb-1">Change Device Name</label>
+              <input type="text" class="form-control mb-1" id="deviceNameSettingsInput" value="${currentCustomName}" placeholder="e.g., MyLaptop, Work PC, iPhone">
+              <div class="form-text small">This helps identify which device uploaded which files.</div>
             </div>
           </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <div class="mt-2 d-flex justify-content-center">  <button type="button" class="btn btn-secondary me-2" data-bs-dismiss="modal">Cancel</button>
             <button type="button" class="btn btn-primary" id="saveDeviceSettings">Save</button>
+          </div>
+          <div class="px-3 pb-3 mt-0">  <h6 class="text-center mb-2">Account</h6>
+            <p class="small text-muted mb-2 text-center">Current user: <strong>${JSON.parse(localStorage.getItem('auth_info') || '{}').username || 'Unknown'}</strong></p>
+            <div class="text-center">
+              <button type="button" class="btn btn-danger btn-sm" id="logoutBtnSettings">
+                <i class="bi bi-box-arrow-right me-1"></i>Logout
+              </button>
+            </div>
           </div>
         </div>
       </div>
