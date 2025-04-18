@@ -1639,11 +1639,30 @@ function showVideoModal(url, filename, title = '') {
         // Clear existing buttons
         modalFooter.innerHTML = '';
         
+        // Add download button
+        const downloadBtn = document.createElement('button');
+        downloadBtn.type = 'button';
+        downloadBtn.className = 'btn btn-primary me-2';
+        downloadBtn.innerHTML = '<i class="bi bi-cloud-download-fill"></i> Download';
+        
+        // Add download event handler
+        downloadBtn.addEventListener('click', function() {
+            // Create a temporary anchor element
+            const downloadLink = document.createElement('a');
+            downloadLink.href = url;
+            downloadLink.download = filename;
+            
+            // Programmatically trigger the download
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+        });
+        
         // Add delete button
         const deleteBtn = document.createElement('button');
         deleteBtn.type = 'button';
         deleteBtn.className = 'btn btn-danger';
-        deleteBtn.innerHTML = '<i class="bi bi-trash"></i> Delete';
+        deleteBtn.innerHTML = '<i class="bi bi-trash-fill"></i> Delete';
         
         // Add delete event handler
         deleteBtn.addEventListener('click', function() {
@@ -1666,6 +1685,7 @@ function showVideoModal(url, filename, title = '') {
         
         // Add buttons to footer
         modalFooter.appendChild(deleteBtn);
+        modalFooter.appendChild(downloadBtn);
         modalFooter.appendChild(closeBtn);
     }
     
