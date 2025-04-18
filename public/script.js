@@ -6,7 +6,8 @@ const uppy = new Uppy.Uppy({ restrictions: { maxNumberOfFiles: 1000 } })
         showProgressDetails: true,
         proudlyDisplayPoweredByUppy: false,
         note: 'Images, Videos, Audios, Documents supported',
-        height: 300,
+        height: 'fit-content',
+        width: '100%',
         hideUploadButton: false,
         hideProgressAfterFinish: true,
         showLinkToFileUploadResult: false,
@@ -449,14 +450,14 @@ function createImageThumbnail(url) {
         img.onload = function() {
             const canvas = document.createElement('canvas');
             // Increase thumbnail size for better quality
-            const maxSize = 400; // Increased from 300
+            const maxSize = 250; // decreased from 300
             const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
             canvas.width = img.width * scale;
             canvas.height = img.height * scale;
             const context = canvas.getContext('2d');
             context.drawImage(img, 0, 0, canvas.width, canvas.height);
             // Higher quality JPEG compression
-            const dataURL = canvas.toDataURL('image/jpeg', 0.85); // Increased from 0.7
+            const dataURL = canvas.toDataURL('image/jpeg', 0.6); // decreased from 0.7
             resolve(dataURL);
         };
         img.onerror = function(e) {
@@ -985,18 +986,18 @@ function renderPagination(totalPages, currentPage, filter) {
     
     // Determine which page numbers to show
     let startPage = Math.max(1, currentPage - 2);
-    let endPage = Math.min(totalPages, startPage + 4);
+    let endPage = Math.min(totalPages, startPage + 5);
     
     // On mobile, show fewer page numbers
     const isMobile = window.innerWidth < 576;
     if (isMobile) {
-        startPage = Math.max(1, currentPage - 1);
-        endPage = Math.min(totalPages, startPage + 2);
+        startPage = Math.max(1, currentPage - 2);
+        endPage = Math.min(totalPages, startPage + 3);
     }
     
     // Adjust if we're near the end
-    if (endPage - startPage < (isMobile ? 2 : 4)) {
-        startPage = Math.max(1, endPage - (isMobile ? 2 : 4));
+    if (endPage - startPage < (isMobile ? 1 : 3)) {
+        startPage = Math.max(1, endPage - (isMobile ? 1 : 4));
     }
     
     // Add first page if needed
@@ -1809,10 +1810,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Add Back to Top button
     addBackToTopButton();
     
-    // Ensure scroll listener is attached only once
-    window.removeEventListener('scroll', handleScroll);
-    window.addEventListener('scroll', handleScroll);
-    
+ 
     // Add click handler for loading indicators
     document.removeEventListener('click', handleLoadingIndicatorClick);
     document.addEventListener('click', handleLoadingIndicatorClick);
@@ -1924,7 +1922,7 @@ function captureVideoFrame(url, callback) {
         }
     
         // Try fewer seek positions - optimization
-        const seekPositions = [0.5, 3]; // Reduced from [0.1, 1, 3, 5] to just 2 positions
+        const seekPositions = [1, 3]; // Reduced from [0.1, 1, 3, 5] to just 2 positions
         let currentSeekIndex = 0;
         
         function tryNextSeekPosition() {
@@ -2062,32 +2060,6 @@ function addBackToTopButton() {
         });
     });
 }
-
-/**
- * Periodically checks for and removes any lingering placeholder thumbnails
- */
-function cleanupPlaceholders() {
-    if (!isLoading) {
-        const gallery = document.getElementById('gallery');
-        if (gallery) {
-            const remainingPlaceholders = gallery.querySelectorAll('.placeholder-thumbnail');
-            if (remainingPlaceholders.length > 0) {
-                console.warn(`Cleanup: Found ${remainingPlaceholders.length} remaining placeholders. Removing them.`);
-                remainingPlaceholders.forEach(placeholder => {
-                    placeholder.classList.add('fade-out');
-                    setTimeout(() => {
-                        if (placeholder.parentNode) {
-                            placeholder.remove();
-                        }
-                    }, 300);
-                });
-            }
-        }
-    }
-}
-
-// Run cleanup every 5 seconds
-//setInterval(cleanupPlaceholders, 5000);
 
 /**
  * Processes files sequentially with a delay between each for a smoother appearance
@@ -2408,29 +2380,6 @@ document.getElementById('videoModal').addEventListener('hidden.bs.modal', functi
     });
 });
 
-/**
- * Pauses background loading operations
- */
-function pauseBackgroundLoading() {
-    loadingPaused = true;
-    console.log('Background loading paused');
-}
-
-/**
- * Resumes background loading operations
- */
-function resumeBackgroundLoading() {
-    loadingPaused = false;
-    console.log('Background loading resumed');
-    
-    // Process any queued operations
-    while (loadingQueue.length > 0 && !loadingPaused) {
-        const operation = loadingQueue.shift();
-        if (typeof operation === 'function') {
-            operation();
-        }
-    }
-}
 
 /**
  * Adds an operation to the loading queue if loading is paused
@@ -2663,60 +2612,6 @@ function truncateFilename(filename, maxLength = 30) {
 }
 
 /**
- * Handles scroll events for infinite loading
- */
-function handleScroll() {
-    // Disable infinite scrolling since we're using pagination for all tabs
-    return;
-    
-    // The code below is kept for reference but is no longer used
-    
-    // Skip processing if a modal is open or loading is already in progress
-    if (isModalOpen || isLoading) return;
-    
-    // Skip if we're using pagination for the current filter
-    if (isPaginationEnabled && currentFilter === 'all') return;
-
-    // Clear existing timeout
-    if (scrollTimeout) {
-        clearTimeout(scrollTimeout);
-    }
-
-    // Set new timeout
-    scrollTimeout = setTimeout(() => {
-        const scrollPosition = window.innerHeight + window.scrollY;
-        const bodyHeight = document.body.offsetHeight;
-        const threshold = 500; // Load more when user is 500px from bottom
-
-        if (scrollPosition >= bodyHeight - threshold) {
-            // If we've reached the end of content, show the message
-            if (!hasMore) {
-                const gallery = document.getElementById('gallery');
-                if (gallery) {
-                    showEndOfContentMessage(gallery);
-                }
-                return;
-            }
-
-            console.log(`Loading more files - Page ${currentPage + 1} for filter ${currentFilter}`);
-            
-            // If loading is paused, queue this operation
-            if (loadingPaused) {
-                console.log('Loading paused, queueing load operation');
-                loadingQueue.push(() => loadGallery(currentFilter, currentPage + 1));
-                return;
-            }
-
-            // Load the actual content
-            loadGallery(currentFilter, currentPage + 1);
-        }
-    }, 100); // Debounce for 100ms
-}
-
-// Make sure this is outside any functions, at the global level
-window.addEventListener('scroll', handleScroll);
-
-/**
  * Handles scroll direction detection for cleanup
  */
 function handleScrollDirection() {
@@ -2888,7 +2783,7 @@ function processVideoThumbnailQueue() {
     const activeProcessing = videoThumbnailQueue.filter(item => item.isProcessing).length;
     
     // Process fewer thumbnails concurrently for better performance
-    const MAX_CONCURRENT_VIDEO_THUMBNAILS = 1; // Reduced from previous value
+    const MAX_CONCURRENT_VIDEO_THUMBNAILS = 2; // Reduced from previous value
     
     // Process up to the maximum concurrent limit
     const availableSlots = MAX_CONCURRENT_VIDEO_THUMBNAILS - activeProcessing;
@@ -2932,7 +2827,7 @@ function processVideoThumbnailQueue() {
             }
             
             // Process the next item after a short delay
-            setTimeout(processVideoThumbnailQueue, 50); // Reduced from 100ms to 50ms
+            setTimeout(processVideoThumbnailQueue, 100);
         });
     });
     
