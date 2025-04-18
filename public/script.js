@@ -359,6 +359,18 @@ uppy.on('upload-success', (file, response) => {
         toast.show();
     } else {
         console.log(`Server did not flag ${file.name} as a duplicate`, response.body);
+        
+        // Check if the uploaded file is a video and generate thumbnail
+        const ext = file.name.split('.').pop().toLowerCase();
+        const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
+        
+        if (isVideo && response.body && response.body.filename) {
+            // Generate thumbnail for newly uploaded video
+            const filename = response.body.filename;
+            const url = `/uploads/${filename}`;
+            console.log(`Queuing thumbnail generation for newly uploaded video: ${filename}`);
+            queueVideoThumbnail(url, filename, null, null);
+        }
     }
     
     // Reload gallery when upload completes
@@ -1677,6 +1689,17 @@ function showVideoModal(url, filename, title = '') {
         isModalOpen = false;
         loadingPaused = false;
         
+        // Check if thumbnail exists and if it's a fallback thumbnail
+        const cachedThumbnail = localStorage.getItem(`video_thumb_${filename}`);
+        if (cachedThumbnail && cachedThumbnail.length < 5000) {
+            // If thumbnail is too small, it's likely a fallback/placeholder
+            // Delete it and regenerate to get a proper thumbnail after viewing
+            console.log(`Detected fallback thumbnail for ${filename}, regenerating after view`);
+            localStorage.removeItem(`video_thumb_${filename}`);
+            // Queue for thumbnail regeneration with higher priority
+            queueVideoThumbnail(url, filename, null, null);
+        }
+        
         // Process any queued loading operations
         if (loadingQueue && loadingQueue.length > 0) {
             console.log(`Processing ${loadingQueue.length} queued loading operations`);
@@ -1888,18 +1911,26 @@ function captureVideoFrame(url, callback) {
             
             // Create a default thumbnail for video errors - simplified version
             const canvas = document.createElement('canvas');
-            canvas.width = 300;
-            canvas.height = 200;
+            canvas.width = 250;
+            canvas.height = 150;
             const ctx = canvas.getContext('2d');
-            // Simple gray background
-            ctx.fillStyle = '#e0e0e0';
+            // Simple gradient background to make it clear it's a fallback
+            const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+            gradient.addColorStop(0, '#e0e0e0');
+            gradient.addColorStop(1, '#c0c0c0');
+            ctx.fillStyle = gradient;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
             // Add video icon
             ctx.fillStyle = '#999999';
             ctx.font = 'bold 48px sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText('▶️', canvas.width/2, canvas.height/2);
+            
+            // Add text indicating it's a fallback
+            ctx.font = '12px sans-serif';
+            ctx.fillText('Tap to view video', canvas.width/2, canvas.height/2 + 40);
             
             // Clean up
             if (video) {
