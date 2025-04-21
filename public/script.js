@@ -1959,7 +1959,7 @@ function captureVideoFrame(url, callback) {
                 video.load();
             }
             
-            const thumbnail = canvas.toDataURL('image/jpeg', 0.6);
+            const thumbnail = canvas.toDataURL('image/jpeg', 0.7);
             console.log(`Used fallback thumbnail for: ${url}`);
             
             // Cache even fallback thumbnails to avoid repeated generation attempts
