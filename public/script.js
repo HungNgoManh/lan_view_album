@@ -496,7 +496,7 @@ let isLoading = false;
 let isModalOpen = false;
 let scrollTimeout = null;
 let isPaginationEnabled = true; // Controls whether to use pagination or infinite scroll
-let filesPerPage = 20; // Fixed number of files per page (4 columns × 5 rows)
+let filesPerPage = 50; // Default for desktop (10 columns × 5 rows)
 let totalFiles = 0;
 let totalPages = 0;
 
@@ -509,6 +509,25 @@ let loadingQueue = [];
 let videoThumbnailQueue = [];
 let isProcessingVideoThumbnails = false;
 const MAX_CONCURRENT_VIDEO_THUMBNAILS = 1; // Limit concurrent video processing
+
+// Adjust files per page based on screen size
+function updateFilesPerPage() {
+    if (window.innerWidth < 768) {
+        // Mobile: 4 columns × 5 rows = 20 items
+        filesPerPage = 20;
+    } else {
+        // Tablet/Desktop: 10 columns × 5 rows = 50 items
+        filesPerPage = 50;
+    }
+    console.log(`Screen width: ${window.innerWidth}px, Files per page: ${filesPerPage}`);
+}
+
+// Set initial value
+updateFilesPerPage();
+
+// Update on resize
+window.addEventListener('resize', updateFilesPerPage);
+
 
 // Update the loadGallery function to handle sequential loading
 async function loadGallery(filter = 'all', page = 1, maintainScroll = false) {
@@ -553,7 +572,7 @@ async function loadGallery(filter = 'all', page = 1, maintainScroll = false) {
     const gallery = document.getElementById('gallery');
     
     // Show page loading indicator if not first page (for pagination mode)
-    if (page > 1) {
+    if (page >= 1) {
         // Clear existing content when changing pages with pagination
         gallery.innerHTML = '';
         
@@ -1353,7 +1372,8 @@ async function createFileCardAsync(fileObj) {
     // Create grid card for image/video tabs
     const createGridCard = () => {
         const col = document.createElement('div');
-        col.className = 'col-lg-3 real-item';
+        col.className = 'col-3 col-sm-2 col-md-1 gallery-item';
+        col.style.marginBottom = '3px'; // Ensure consistent bottom margin
         col.setAttribute('data-filename', filename);
 
         if (isImage) {
@@ -1362,7 +1382,7 @@ async function createFileCardAsync(fileObj) {
 
             // Create a proper thumbnail container with loading spinner
             const thumbnailHtml = `
-                <div class="card h-100">
+                <div class="card h-100" style="margin-bottom: 0;">
                     <div class="thumbnail-container">
                         <div class="thumbnail-loading">
                             <div class="spinner-border spinner-border-sm text-primary" role="status">
@@ -1402,7 +1422,7 @@ async function createFileCardAsync(fileObj) {
             // Set up video card with cached or generated thumbnail
             const cachedThumbnail = localStorage.getItem(`video_thumb_${filename}`);
             const videoHtml = `
-                <div class="card h-100">
+                <div class="card h-100" style="margin-bottom: 0;">
                     <div class="thumbnail-container">
                         <div class="thumbnail-loading">
                             <div class="spinner-border spinner-border-sm text-primary" role="status">
@@ -1441,7 +1461,7 @@ async function createFileCardAsync(fileObj) {
             }
         } else {
             col.innerHTML = `
-                <div class="card h-100">
+                <div class="card h-100" style="margin-bottom: 0;">
                     <div class="card-body text-center">
                         <i class="bi bi-file-earmark text-muted mb-2" style="font-size: 2rem;"></i>
                         <div class="small text-muted mb-2 text-truncate" title="${filename}">${filename}</div>
@@ -2965,7 +2985,7 @@ function queueVideoThumbnail(url, filename, imgElement, loadingElement) {
  * @param {number} count - Number of placeholders to create
  * @returns {DocumentFragment} - Fragment containing placeholders
  */
-function createPlaceholderThumbnails(count = 3) {
+function createPlaceholderThumbnails(count = 50) {
     const fragment = document.createDocumentFragment();
     const viewMode = document.getElementById('viewModeToggle')?.dataset?.mode || 'grid';
     
@@ -2973,30 +2993,30 @@ function createPlaceholderThumbnails(count = 3) {
         const col = document.createElement('div');
         
         if (viewMode === 'grid') {
-            col.className = 'col-lg-3 placeholder-thumbnail';
+            col.className = 'col-3 col-sm-2 col-md-1 gallery-item placeholder-thumbnail';
+            col.style.marginBottom = '3px'; // Apply consistent bottom margin
+            
             const card = document.createElement('div');
             card.className = 'card placeholder-thumbnail h-100 bg-light shadow-sm';
+            card.style.marginBottom = '0'; // No bottom margin on card
             
             const cardBody = document.createElement('div');
-            cardBody.className = 'card-body placeholder-glow';
+            cardBody.className = 'card-body placeholder-glow p-1';
             
             const imgPlaceholder = document.createElement('div');
-            imgPlaceholder.className = 'placeholder-image mb-2';
-            imgPlaceholder.style.height = '120px';
+            imgPlaceholder.className = 'placeholder-image';
+            imgPlaceholder.style.height = '100%';
+            imgPlaceholder.style.paddingBottom = '100%'; // Square aspect ratio
             imgPlaceholder.style.backgroundColor = '#e9e9e9';
             imgPlaceholder.style.borderRadius = '3px';
+            imgPlaceholder.style.position = 'relative';
             
-            const titlePlaceholder = document.createElement('div');
-            titlePlaceholder.className = 'placeholder col-9 mb-2';
-            titlePlaceholder.style.height = '18px';
-            
-            const infoPlaceholder = document.createElement('div');
-            infoPlaceholder.className = 'placeholder col-6';
-            infoPlaceholder.style.height = '14px';
+            // Add shimmer effect
+            const shimmer = document.createElement('div');
+            shimmer.className = 'shimmer-effect';
+            imgPlaceholder.appendChild(shimmer);
             
             cardBody.appendChild(imgPlaceholder);
-            cardBody.appendChild(titlePlaceholder);
-            cardBody.appendChild(infoPlaceholder);
             card.appendChild(cardBody);
             col.appendChild(card);
         } else {
