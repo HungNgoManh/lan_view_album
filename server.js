@@ -6,6 +6,7 @@ const fs = require('fs-extra');
 const sharp = require('sharp');
 const cors = require('cors');
 const { spawn } = require('child_process');
+const ffmpeg = require('fluent-ffmpeg');
 
 const app = express();
 const PORT = 3000;
@@ -49,6 +50,9 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+// Serve thumbnails statically
+app.use('/thumbnails', express.static(THUMB_DIR));
+
 // Upload route
 app.post('/upload', upload.single('file'), async (req, res) => {
     try {
@@ -76,33 +80,19 @@ app.post('/upload', upload.single('file'), async (req, res) => {
         let duplicateFile = '';
         
         for (const existingFile of existingFiles) {
-            // Skip the file we just uploaded (which should have the same filename)
-            if (existingFile === filename) {
-                console.log(`Skipping the file we just uploaded: ${existingFile}`);
-                continue;
-            }
-            
-            // Method 2: Extract original filename part (after deviceId_)
+            if (existingFile === filename) continue;
             const existingOriginalName = existingFile.includes('_') ? 
                 existingFile.substring(existingFile.indexOf('_') + 1) : 
                 existingFile;
-                
-            console.log(`🔄 Comparing: '${existingOriginalName}' (from '${existingFile}') with '${originalname}'`);
-                
-            // Check if another file with the same original name exists
             if (existingOriginalName === originalname) {
-                console.warn(`⚠️ Duplicate detected (original name): ${originalname} already exists as ${existingFile}`);
                 isDuplicate = true;
                 duplicateFile = existingFile;
                 break;
             }
         }
         
-        // If duplicate found, return an error and prevent the upload
         if (isDuplicate) {
-            // Remove the uploaded file
             await fs.remove(tempPath);
-            console.log(`🚫 Blocking duplicate upload of ${originalname}, duplicate of ${duplicateFile}`);
             return res.status(400).json({ 
                 success: false, 
                 message: `This file already exists as ${duplicateFile}. Please rename it or upload a different file.`,
@@ -110,15 +100,46 @@ app.post('/upload', upload.single('file'), async (req, res) => {
                 duplicateFile: duplicateFile
             });
         }
-        
-        console.log(`✅ Upload complete: ${filename}, isDuplicate: ${isDuplicate}`);
-        
-        res.json({ 
-            success: true, 
-            filename: filename,
-            originalname: req.file.originalname,
-            isDuplicate: isDuplicate // Let the client know if it was a duplicate
-        });
+
+        // === VIDEO THUMBNAIL GENERATION ===
+        if (['.mp4', '.webm', '.mov'].includes(ext)) {
+            const videoPath = tempPath;
+            const thumbPath = path.join(THUMB_DIR, filename + '.jpg');
+            ffmpeg(videoPath)
+                .on('end', () => {
+                    console.log('Thumbnail generated:', thumbPath);
+                    res.json({ 
+                        success: true, 
+                        filename: filename,
+                        originalname: req.file.originalname,
+                        isDuplicate: false
+                    });
+                })
+                .on('error', (err) => {
+                    console.error('Error generating thumbnail:', err);
+                    res.json({ 
+                        success: true, 
+                        filename: filename,
+                        originalname: req.file.originalname,
+                        isDuplicate: false,
+                        thumbError: true
+                    });
+                })
+                .screenshots({
+                    count: 1,
+                    timemarks: ['3'], // 3 seconds in
+                    filename: filename + '.jpg',
+                    folder: THUMB_DIR
+                });
+        } else {
+            // Not a video, just respond
+            res.json({ 
+                success: true, 
+                filename: filename,
+                originalname: req.file.originalname,
+                isDuplicate: false
+            });
+        }
     } catch (err) {
         console.error('❌ Upload error:', err);
         res.status(500).json({ 
@@ -499,6 +520,40 @@ app.delete('/api/users/:username', (req, res) => {
     users.splice(userIndex, 1);
     
     res.json({ success: true });
+});
+
+// On-demand video thumbnail generation endpoint
+app.post('/api/generate-thumbnail', async (req, res) => {
+    const { filename } = req.body;
+    if (!filename) return res.status(400).json({ success: false, message: 'No filename provided' });
+
+    const videoPath = path.join(UPLOAD_DIR, filename);
+    const thumbPath = path.join(THUMB_DIR, filename + '.jpg');
+
+    // Check if video exists
+    if (!await fs.pathExists(videoPath)) {
+        return res.status(404).json({ success: false, message: 'Video not found' });
+    }
+
+    // If thumbnail already exists, return success
+    if (await fs.pathExists(thumbPath)) {
+        return res.json({ success: true, thumbnail: `/thumbnails/${filename}.jpg` });
+    }
+
+    // Generate thumbnail
+    ffmpeg(videoPath)
+        .on('end', () => {
+            res.json({ success: true, thumbnail: `/thumbnails/${filename}.jpg` });
+        })
+        .on('error', (err) => {
+            res.status(500).json({ success: false, message: 'Failed to generate thumbnail', error: err.toString() });
+        })
+        .screenshots({
+            count: 1,
+            timemarks: ['3'],
+            filename: filename + '.jpg',
+            folder: THUMB_DIR
+        });
 });
 
 // Start server

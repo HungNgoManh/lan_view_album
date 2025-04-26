@@ -1373,7 +1373,7 @@ async function createFileCardAsync(fileObj) {
     const createGridCard = () => {
         const col = document.createElement('div');
         col.className = 'col-3 col-sm-2 col-md-1 gallery-item';
-        col.style.marginBottom = '3px'; // Ensure consistent bottom margin
+        col.style.marginBottom = '3px';
         col.setAttribute('data-filename', filename);
 
         if (isImage) {
@@ -1419,8 +1419,8 @@ async function createFileCardAsync(fileObj) {
                 imgElement.src = `${url}?thumb=1`;
             }
         } else if (isVideo) {
-            // Set up video card with cached or generated thumbnail
-            const cachedThumbnail = localStorage.getItem(`video_thumb_${filename}`);
+            // Use server-side generated thumbnail from /thumbnails
+            const videoThumbUrl = `/thumbnails/${filename}.jpg`;
             const videoHtml = `
                 <div class="card h-100" style="margin-bottom: 0;">
                     <div class="thumbnail-container">
@@ -1434,31 +1434,19 @@ async function createFileCardAsync(fileObj) {
                 </div>`;
             col.innerHTML = videoHtml;
 
-            // Get elements
             const imgElement = col.querySelector('.thumbnail-img');
             const loadingElement = col.querySelector('.thumbnail-loading');
-
-            // Set up click handler
             col.querySelector('.thumbnail-container').onclick = () => showVideoModal(url, filename, truncateFilename(filename, 30));
-
-            // If we have a cached thumbnail, use it
-            if (cachedThumbnail) {
-                imgElement.onload = () => {
-                    imgElement.classList.add('loaded');
-                    if (loadingElement) loadingElement.style.display = 'none';
-                };
-                imgElement.src = cachedThumbnail;
-                } else {
-                    captureVideoFrame(url, (thumbnail) => {
-                        safelyStoreInLocalStorage(`video_thumb_${filename}`, thumbnail);
-                        //safelyStoreInLocalStorage(`duration_${filename}`, duration);
-                        imgElement.onload = () => {
-                            imgElement.classList.add('loaded');
-                            if (loadingElement) loadingElement.style.display = 'none';
-                        };
-                        imgElement.src = thumbnail;
-                    });
-            }
+            imgElement.onload = () => {
+                imgElement.classList.add('loaded');
+                if (loadingElement) loadingElement.style.display = 'none';
+            };
+            imgElement.onerror = () => {
+                // fallback: show a default icon or fallback image
+                imgElement.src = '/static/default-video-thumb.jpg';
+                if (loadingElement) loadingElement.style.display = 'none';
+            };
+            imgElement.src = videoThumbUrl;
         } else {
             col.innerHTML = `
                 <div class="card h-100" style="margin-bottom: 0;">
@@ -1595,7 +1583,31 @@ function showVideoModal(url, filename, title = '') {
     // Pause background loading operations
     isModalOpen = true;
     loadingPaused = true;
-    
+
+    // Before showing modal, check if thumbnail exists and generate if missing
+    const thumbUrl = `/thumbnails/${filename}.jpg`;
+    fetch(thumbUrl, { method: 'HEAD' })
+        .then(response => {
+            if (!response.ok) {
+                // Thumbnail does not exist, request generation
+                fetch('/api/generate-thumbnail', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        // Optionally update the thumbnail in the UI if present
+                        const thumbImg = document.querySelector(`.gallery-item[data-filename='${filename}'] .thumbnail-img`);
+                        if (thumbImg) {
+                            thumbImg.src = data.thumbnail + '?t=' + Date.now(); // bust cache
+                        }
+                    }
+                });
+            }
+        });
+
     // Get the modal
     const videoModal = document.getElementById('videoModal');
     if (!videoModal) return;
@@ -1979,7 +1991,7 @@ function captureVideoFrame(url, callback) {
                 video.load();
             }
             
-            const thumbnail = canvas.toDataURL('image/jpeg', 0.7);
+            const thumbnail = canvas.toDataURL('image/jpeg', 0.5);
             console.log(`Used fallback thumbnail for: ${url}`);
             
             // Cache even fallback thumbnails to avoid repeated generation attempts
@@ -1993,7 +2005,7 @@ function captureVideoFrame(url, callback) {
         }
     
         // Try fewer seek positions - optimization
-        const seekPositions = [1, 3]; // Reduced from [0.1, 1, 3, 5] to just 2 positions
+        const seekPositions = [3, 6]; // Reduced from [0.1, 1, 3, 5] to just 2 positions
         let currentSeekIndex = 0;
         
         function tryNextSeekPosition() {
@@ -2854,7 +2866,7 @@ function processVideoThumbnailQueue() {
     const activeProcessing = videoThumbnailQueue.filter(item => item.isProcessing).length;
     
     // Process fewer thumbnails concurrently for better performance
-    const MAX_CONCURRENT_VIDEO_THUMBNAILS = 2; // Reduced from previous value
+    const MAX_CONCURRENT_VIDEO_THUMBNAILS = 5; // Reduced from previous value
     
     // Process up to the maximum concurrent limit
     const availableSlots = MAX_CONCURRENT_VIDEO_THUMBNAILS - activeProcessing;
