@@ -513,8 +513,8 @@ const MAX_CONCURRENT_VIDEO_THUMBNAILS = 1; // Limit concurrent video processing
 // Adjust files per page based on screen size
 function updateFilesPerPage() {
     if (window.innerWidth < 768) {
-        // Mobile: 4 columns × 5 rows = 20 items
-        filesPerPage = 20;
+        // Mobile: 4 columns × 6 rows = 24 items
+        filesPerPage = 24;
     } else {
         // Tablet/Desktop: 10 columns × 5 rows = 50 items
         filesPerPage = 50;
@@ -903,12 +903,20 @@ async function processGalleryData(data, gallery, page, filter, maintainScroll = 
         if (listBody) {
             targetContainer = listBody;
         }
+    } else if (filter === 'other') {
+        // For 'other' filter, use the other-files-body list container
+        const listBody = document.getElementById('other-files-body');
+        if (listBody) {
+            targetContainer = listBody;
+        }
     }
     
     // Check for existing files in the gallery (to prevent duplicates on refresh)
     if (page === 1) {
         // If this is page 1, we want to clear any existing items to prevent duplicates
         if (filter === 'all') {
+            targetContainer.innerHTML = '';
+        } else if (filter === 'other') {
             targetContainer.innerHTML = '';
         } else {
             const existingItems = gallery.querySelectorAll('.real-item');
@@ -1164,10 +1172,12 @@ function updateTabLabels(counts = {}) {
     const allTab = document.querySelector('[data-filter="all"]');
     const imageTab = document.querySelector('[data-filter="image"]');
     const videoTab = document.querySelector('[data-filter="video"]');
+    const otherTab = document.querySelector('[data-filter="other"]');
 
     if (allTab) allTab.textContent = `All Files (${mergedCounts.all})`;
     if (imageTab) imageTab.textContent = `Photos (${mergedCounts.images})`;
     if (videoTab) videoTab.textContent = `Videos (${mergedCounts.videos})`;
+    if (otherTab) otherTab.textContent = `Documents (${mergedCounts.others})`;
 }
 
 // New function to process files one by one
@@ -1264,7 +1274,7 @@ async function processFilesOneByOne(files, gallery, page) {
 }
 
 // New function to create a file card with async/await
-async function createFileCardAsync(fileObj) {
+async function createFileCardAsync(fileObj, forceList = false) {
     const filename = fileObj.filename;
     const ext = filename.split('.').pop().toLowerCase();
     const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
@@ -1372,7 +1382,7 @@ async function createFileCardAsync(fileObj) {
     // Create grid card for image/video tabs
     const createGridCard = () => {
         const col = document.createElement('div');
-        col.className = 'col-3 col-sm-2 col-md-1 gallery-item';
+        col.className = 'gallery-col gallery-item';
         col.style.marginBottom = '3px';
         col.setAttribute('data-filename', filename);
 
@@ -1467,12 +1477,11 @@ async function createFileCardAsync(fileObj) {
     // Get current filter value from active tab at execution time
     function getCurrentView() {
         const activeFilter = document.querySelector('.filter-tabs .active')?.dataset.filter || 'all';
-        console.log(`Current active filter: ${activeFilter}`);
-        if (activeFilter === 'all') {
-        return createTableRow();
-    } else {
-        return createGridCard();
-    }
+        if (forceList || activeFilter === 'all' || activeFilter === 'other') {
+            return createTableRow();
+        } else {
+            return createGridCard();
+        }
     }
     
     return getCurrentView();
@@ -3172,16 +3181,29 @@ document.addEventListener('DOMContentLoaded', () => {
 function updateViewLayout(filter) {
     const allFilesHeader = document.getElementById('all-files-header');
     const gridView = document.getElementById('grid-view');
+    const otherFilesHeader = document.getElementById('other-files-header');
     
-    if (allFilesHeader && gridView) {
+    if (allFilesHeader && gridView && otherFilesHeader) {
         if (filter === 'all') {
             // For 'all' filter, show the list view (all-files-header)
             allFilesHeader.classList.remove('d-none');
             gridView.classList.add('d-none');
-        } else {
-            // For image/video filters, show the grid view
+            otherFilesHeader.classList.add('d-none');
+        } else if (filter === 'image') {
+            // For image filter, show the grid view
             allFilesHeader.classList.add('d-none');
             gridView.classList.remove('d-none');
+            otherFilesHeader.classList.add('d-none');
+        } else if (filter === 'video') {
+            // For video filter, show the grid view
+            allFilesHeader.classList.add('d-none');
+            gridView.classList.remove('d-none');
+            otherFilesHeader.classList.add('d-none');
+        } else if (filter === 'other') {
+            // For 'other' filter, show the grid view
+            allFilesHeader.classList.add('d-none');
+            gridView.classList.add('d-none');
+            otherFilesHeader.classList.remove('d-none');
         }
     }
 }

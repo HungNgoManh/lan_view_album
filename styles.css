@@ -1,0 +1,27 @@
+#other-files-header,
+#other-files-body {
+    max-height: none !important;
+    overflow: visible !important;
+    height: auto !important;
+    display: block !important;
+}
+
+@media (max-width: 768px) {
+  #other-files-body {
+    display: block !important;
+  }
+  .file-item {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    justify-content: flex-start !important;
+    width: 100% !important;
+    padding: 6px 0 !important;
+  }
+  .file-size {
+    text-align: left !important;
+    width: 100% !important;
+    margin-left: 0 !important;
+    margin-top: 2px !important;
+  }
+} 
