@@ -1,164 +1,42 @@
 /* Remove ALL list markers and bullets */
-.files-list,
-.files-list li,
-#other-files-body,
-#other-files-body li {
-    list-style: none !important;
-    list-style-type: none !important;
-    list-style-image: none !important;
-    list-style-position: outside !important;
-    padding-left: 0 !important;
-    margin-left: 0 !important;
-}
-
-/* Target the ::marker pseudo-element directly */
-.files-list li::marker,
-#other-files-body li::marker {
-    content: "" !important;
-    display: none !important;
-    color: transparent !important;
-    font-size: 0 !important;
-    width: 0 !important;
-    height: 0 !important;
-}
-
-/* Target the ::before pseudo-element as fallback */
-.files-list li::before,
-#other-files-body li::before {
-    content: none !important;
-    display: none !important;
-}
-
-/* Extra fix for Firefox */
-@-moz-document url-prefix() {
-    .files-list li,
-    #other-files-body li {
-        list-style-type: none !important;
-    }
-}
-
-/* Extra fix for Webkit */
-@media screen and (-webkit-min-device-pixel-ratio: 0) {
-    .files-list li,
-    #other-files-body li {
-        -webkit-padding-start: 0 !important;
-    }
-}
+/* (Removed .files-list, #other-files-body, and related rules) */
 
 /* File item styling */
-.file-item {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    padding: 10px !important;
-    border-bottom: 1px solid #eee !important;
-    transition: background-color 0.2s !important;
-}
-
-.file-item:hover {
-    background-color: #f8f9fa !important;
-}
-
-/* File name styling */
-.file-name {
-    flex: 1 !important;
-    min-width: 0 !important; /* Important for text overflow to work */
-    padding-right: 10px !important;
-}
-
-/* File size styling */
-.file-size {
-    width: auto !important;
-    text-align: right !important;
-    white-space: nowrap !important;
-    font-size: 0.9rem !important;
-    color: #6c757d !important;
-    font-weight: 500 !important;
-}
-
-/* Make filename links nicer */
-.filename-link {
-    display: flex !important;
-    align-items: center !important;
-    color: #007bff !important;
-    text-decoration: none !important;
-    max-width: 100% !important;
-    overflow: hidden !important;
-}
-
-.filename-link:hover {
-    color: #0056b3 !important;
-    text-decoration: underline !important;
-}
-
-.filename-text {
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    font-family: monospace !important;
-}
-
-.filename-link i {
-    flex-shrink: 0 !important;
-    margin-right: 8px !important;
-}
+/* (Removed .file-item, .file-name, .file-size, .filename-link, .filename-text, .filename-link i for old Documents tab) */
 
 /* Mobile optimization */
 @media (max-width: 768px) {
-    .file-item {
-        padding: 1px !important;
-         }
-    
-    .filename-text {
-        font-size: 16px !important;
-         }
-    
-    .file-size {
-        font-size: 16px !important;
-        margin-left: 1px !important;
+    /* Removed #other-files-body .file-item, .file-size, .file-name for old Documents tab */
+    #gallery .file-item {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        padding: 8px 4px !important;
+        gap: 2px !important;
+        width: 100% !important;
+    }
+    #gallery .file-size {
+        display: block !important;
+        text-align: left !important;
+        font-size: 13px !important;
+        margin-left: 0 !important;
+        margin-top: 2px !important;
+        width: 100% !important;
+    }
+    #gallery .file-name {
+        display: block !important;
+        padding-right: 0 !important;
+        width: 100% !important;
     }
 }
 
 /* Chrome specific fix */
 @media screen and (-webkit-min-device-pixel-ratio: 0) {
-    .files-list li {
-        display: block !important;
-    }
-    
-    .file-name {
-        display: block !important;
-        text-align: left !important;
-    }
-    
-    .file-size {
-        display: block !important;
-        text-align: right !important;
-    }
-    
-    .filename-link {
-        display: inline-flex !important;
-        align-items: center !important;
-    }
-    
-    .filename-link i {
-        margin-right: 5px !important;
-    }
+    /* Removed .files-list li, .file-name, .file-size, .filename-link, .filename-link i for old Documents tab */
 }
 
 /* Direct targeting of list items with no-marker class */
-li.no-marker {
-    display: block !important;
-    list-style: none !important;
-    list-style-type: none !important;
-    margin: 0 !important;
-    padding: 0 !important;
-}
-
-li.no-marker::marker,
-li.no-marker::before {
-    content: "" !important;
-    display: none !important;
-}
+/* Removed li.no-marker and related marker rules for old Documents tab */
 
 /* Custom gallery grid columns */
 @media (min-width: 992px) {
