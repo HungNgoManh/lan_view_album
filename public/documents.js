@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', async function() {
   // Pagination variables
   const FILES_PER_PAGE = 30;
   let files = [];
+  let filteredFiles = [];
   let currentPage = 1;
   let totalPages = 1;
 
@@ -20,15 +21,16 @@ document.addEventListener('DOMContentLoaded', async function() {
 
   function renderPage(page) {
     list.innerHTML = '';
-    if (!files.length) {
+    const data = filteredFiles.length ? filteredFiles : files;
+    if (!data.length) {
       emptyMsg.style.display = '';
       return;
     }
     emptyMsg.style.display = 'none';
-    totalPages = Math.ceil(files.length / FILES_PER_PAGE);
+    totalPages = Math.ceil(data.length / FILES_PER_PAGE);
     const start = (page - 1) * FILES_PER_PAGE;
     const end = start + FILES_PER_PAGE;
-    files.slice(start, end).forEach(file => {
+    data.slice(start, end).forEach(file => {
       const li = document.createElement('li');
       const link = document.createElement('a');
       link.className = 'doc-filename';
@@ -111,6 +113,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     if (!res.ok) throw new Error('Failed to fetch documents');
     const data = await res.json();
     files = Array.isArray(data.files) ? data.files : (Array.isArray(data) ? data : []);
+    filteredFiles = [];
     if (title) {
       title.textContent = `Documents (${files.length})`;
     }
@@ -134,4 +137,19 @@ document.addEventListener('DOMContentLoaded', async function() {
   backToTopBtn.addEventListener('click', function() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
+
+  // Search functionality
+  const searchInput = document.getElementById('doc-search-input');
+  if (searchInput) {
+    searchInput.addEventListener('input', function() {
+      const query = this.value.trim().toLowerCase();
+      if (query.length === 0) {
+        filteredFiles = [];
+      } else {
+        filteredFiles = files.filter(file => file.filename.toLowerCase().includes(query));
+      }
+      currentPage = 1;
+      renderPage(currentPage);
+    });
+  }
 }); 

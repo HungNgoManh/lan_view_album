@@ -520,11 +520,11 @@ const MAX_CONCURRENT_VIDEO_THUMBNAILS = 1; // Limit concurrent video processing
 // Adjust files per page based on screen size
 function updateFilesPerPage() {
     if (window.innerWidth < 768) {
-        // Mobile: 4 columns × 7 rows = 28 items
-        filesPerPage = 28;
+        // Mobile: 4 columns × 6 rows = 24 items
+        filesPerPage = 24;
     } else {
-        // Tablet/Desktop: 10 columns × 6 rows = 60 items
-        filesPerPage = 60;
+        // Tablet/Desktop: 10 columns × 5 rows = 50 items
+        filesPerPage = 50;
     }
     console.log(`Screen width: ${window.innerWidth}px, Files per page: ${filesPerPage}`);
 }
@@ -537,11 +537,15 @@ window.addEventListener('resize', updateFilesPerPage);
 
 
 // Update the loadGallery function to handle sequential loading
-async function loadGallery(filter = 'all', page = 1, maintainScroll = false) {
+async function loadGallery(filter = 'image', page = 1, maintainScroll = false) {
     // Prevent duplicate loading requests
     if (isLoading) {
         console.log(`Skipping duplicate loading request (filter: ${filter}, page: ${page})`);
         return;
+    }
+    // If filter is 'all', redirect to 'image' (Photos tab)
+    if (filter === 'all') {
+        filter = 'image';
     }
     isLoading = true;
 
@@ -615,7 +619,7 @@ async function loadGallery(filter = 'all', page = 1, maintainScroll = false) {
     const newUrl = new URL(window.location);
     newUrl.searchParams.set('filter', filter);
     newUrl.searchParams.set('page', page);
-    window.history.pushState({}, '', newUrl);
+    window.history.replaceState({}, '', newUrl);
 
     // Set limit to 20 items per page for all tabs
     const limit = filesPerPage;
@@ -943,13 +947,16 @@ async function processGalleryData(data, gallery, page, filter, maintainScroll = 
     }
     
     // Process files in batches rather than one by one for better performance
-    const batchSize = 5; // Process 5 files at once
+    // Increase batch size for images/photos tab
+    const batchSize = (filter === 'image') ? 20 : 5; // 20 for images, 5 for others
     
     for (let i = 0; i < data.files.length; i += batchSize) {
         // Get the current batch of files
         const batch = data.files.slice(i, i + batchSize);
         
-        // Process the batch in parallel
+        // Use a DocumentFragment to batch DOM updates
+        const fragment = document.createDocumentFragment();
+
         await Promise.all(batch.map(async (fileObj) => {
             const filename = fileObj.filename;
             
@@ -964,11 +971,12 @@ async function processGalleryData(data, gallery, page, filter, maintainScroll = 
             // Create the file card
             const fileCard = await createFileCardAsync(fileObj);
             
-            // Add the file card to the appropriate container
-            targetContainer.appendChild(fileCard);
+            // Add the file card to the fragment (not directly to DOM)
+            fragment.appendChild(fileCard);
         }));
         
-        // No need for artificial delay between batches for better performance
+        // Append the fragment to the target container in one operation
+        targetContainer.appendChild(fragment);
     }
     
     // Remove all remaining placeholders
@@ -1414,6 +1422,9 @@ async function createFileCardAsync(fileObj, forceList = false) {
 
             // Set up click handler
             imgElement.onclick = () => showImageModal(url, filename, truncateFilename(filename, 30));
+
+            // Set lazy loading for better performance
+            imgElement.loading = 'lazy';
 
             // If cached thumbnail exists, use it
             if (cachedThumbnail) {
@@ -2629,7 +2640,11 @@ function restoreAppState(loadContent = true) {
             const urlFilter = getUrlParameter('filter');
             const urlPage = parseInt(getUrlParameter('page')) || 1;
             
-            currentFilter = urlFilter || state.currentFilter || 'all';
+            let filter = urlFilter || state.currentFilter || 'image';
+            if (filter === 'all' || filter === 'other') {
+                filter = 'image';
+            }
+            currentFilter = filter;
             
             // Determine which page to use
             if (urlFilter && urlPage) {
@@ -2638,11 +2653,7 @@ function restoreAppState(loadContent = true) {
             } else if (urlFilter) {
                 // If only filter is provided in URL, start at page 1
                 currentPage = 1;
-            } else if (currentFilter === 'all' && isPaginationEnabled && state.currentPage) {
-                // Use saved page for 'all' filter with pagination enabled
-                currentPage = state.currentPage;
             } else {
-                // Default to page 1
                 currentPage = 1;
             }
             
