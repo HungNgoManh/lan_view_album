@@ -257,91 +257,96 @@ function openDeviceNameSettings() {
 
 // Track duplicate files for summary
 let skippedDuplicateFiles = 0;
+// Cache for existing files to check duplicates efficiently (now a Set)
+let existingFilesCache = null;
 
 uppy.on('file-added', async (file) => {
     console.log(`Added file: ${file.name} (${file.size} bytes)`);
 
-    // Check for duplicate files - get ALL files without pagination
-    try {
-        const response = await fetch('/uploads?checkDuplicates=true');
-        const data = await response.json();
-        
-        // Extract filenames from the response
-        const existingFiles = data && data.files && Array.isArray(data.files) 
-            ? data.files.map(file => file.filename) 
-            : [];
-        
-        console.log(`Checking for duplicates against existing files (${existingFiles.length}/${data?.counts?.all || 'unknown'} total files)`);
-        console.log('Current file being checked:', file.name);
-        
-        // Get the device ID that will be used - same as what the server will use
-        const deviceId = getOrCreateDeviceId();
-        // What the filename would be when uploaded (same format as server would create)
-        const potentialServerFilename = `${deviceId}_${file.name}`;
-        console.log(`Potential server filename would be: ${potentialServerFilename}`);
-        
-        // Check if a file with the same name exists
-        let isDuplicate = false;
-        let duplicateFilename = '';
-        
-        // First check if the exact same filename exists (including device ID)
-        if (existingFiles.includes(potentialServerFilename)) {
-            console.log(`Found exact match for potential filename: ${potentialServerFilename}`);
-            isDuplicate = true;
-            duplicateFilename = potentialServerFilename;
-        } else {
-            // Otherwise check each file by extracting the original name
-            for (const existingFile of existingFiles) {
-                // Extract original filename part by finding the first underscore
-                // This handles deviceId_filename.ext format properly
-                const firstUnderscoreIndex = existingFile.indexOf('_');
-                
-                // If there's no underscore, compare the whole filename
-                if (firstUnderscoreIndex === -1) {
-                    console.log(`Comparing with file without underscore: "${existingFile}" vs "${file.name}"`);
-                    if (existingFile === file.name) {
-                        isDuplicate = true;
-                        duplicateFilename = existingFile;
-                        console.log(`Duplicate found! No underscore case: "${existingFile}" matches "${file.name}"`);
-                        break;
-                    }
-                } else {
-                    // Extract the part after the first underscore which should be the original filename
-                    const existingOriginalName = existingFile.substring(firstUnderscoreIndex + 1);
-                    console.log(`Comparing: "${existingOriginalName}" (from "${existingFile}") vs "${file.name}"`);
-                    
-                    // Compare with the file being uploaded
-                    if (existingOriginalName === file.name) {
-                        isDuplicate = true;
-                        duplicateFilename = existingFile;
-                        console.log(`Duplicate found! "${existingOriginalName}" matches "${file.name}"`);
-                        break;
-                    }
+    // Fetch the file list only once per upload session
+    if (!existingFilesCache) {
+        try {
+            const response = await fetch('/uploads?checkDuplicates=true');
+            const data = await response.json();
+            existingFilesCache = data && data.files && Array.isArray(data.files)
+                ? new Set(data.files.map(file => file.filename))
+                : new Set();
+        } catch (error) {
+            console.warn('Error fetching file list for duplicate check:', error);
+            // Continue with upload even if duplicate check fails
+            return;
+        }
+    }
+
+    // Extract filenames from the cached response (now a Set)
+    const existingFiles = existingFilesCache;
+    console.log(`Checking for duplicates against existing files (${existingFiles.size} total files)`);
+    console.log('Current file being checked:', file.name);
+
+    // Get the device ID that will be used - same as what the server will use
+    const deviceId = getOrCreateDeviceId();
+    // What the filename would be when uploaded (same format as server would create)
+    const potentialServerFilename = `${deviceId}_${file.name}`;
+    console.log(`Potential server filename would be: ${potentialServerFilename}`);
+
+    // Check if a file with the same name exists
+    let isDuplicate = false;
+    let duplicateFilename = '';
+
+    // First check if the exact same filename exists (including device ID)
+    if (existingFiles.has(potentialServerFilename)) {
+        console.log(`Found exact match for potential filename: ${potentialServerFilename}`);
+        isDuplicate = true;
+        duplicateFilename = potentialServerFilename;
+    } else {
+        // Otherwise check each file by extracting the original name
+        for (const existingFile of existingFiles) {
+            // Extract original filename part by finding the first underscore
+            // This handles deviceId_filename.ext format properly
+            const firstUnderscoreIndex = existingFile.indexOf('_');
+
+            // If there's no underscore, compare the whole filename
+            if (firstUnderscoreIndex === -1) {
+                console.log(`Comparing with file without underscore: "${existingFile}" vs "${file.name}"`);
+                if (existingFile === file.name) {
+                    isDuplicate = true;
+                    duplicateFilename = existingFile;
+                    console.log(`Duplicate found! No underscore case: "${existingFile}" matches "${file.name}"`);
+                    break;
+                }
+            } else {
+                // Extract the part after the first underscore which should be the original filename
+                const existingOriginalName = existingFile.substring(firstUnderscoreIndex + 1);
+                console.log(`Comparing: "${existingOriginalName}" (from "${existingFile}") vs "${file.name}"`);
+
+                // Compare with the file being uploaded
+                if (existingOriginalName === file.name) {
+                    isDuplicate = true;
+                    duplicateFilename = existingFile;
+                    console.log(`Duplicate found! "${existingOriginalName}" matches "${file.name}"`);
+                    break;
                 }
             }
         }
-        
-        if (isDuplicate) {
-            // Increment the counter for skipped files
-            skippedDuplicateFiles++;
-            
-            // Show toast message
-            const toastEl = document.getElementById('uploadToast');
-            const toast = new bootstrap.Toast(toastEl);
-            document.getElementById('toastMessage').textContent = `⚠️ Skipping file "${file.name}" as it already exists on server as "${duplicateFilename}"`;
-            toast.show();
-            
-            // Remove the file from Uppy to prevent upload
-            uppy.removeFile(file.id);
-            console.log(`Removed duplicate file "${file.name}" from upload queue`);
-            
-            return; // Exit early as we removed the file
-        } else {
-            console.log(`No duplicates found for "${file.name}", proceeding with upload`);
-        }
-    } catch (error) {
-        console.warn('Error checking for duplicates:', error);
-        // Continue with upload even if duplicate check fails
+    }
+
+    if (isDuplicate) {
+        // Increment the counter for skipped files
+        skippedDuplicateFiles++;
+
+        // Show toast message
+        const toastEl = document.getElementById('uploadToast');
+        const toast = new bootstrap.Toast(toastEl);
+        document.getElementById('toastMessage').textContent = `⚠️ Skipping file "${file.name}" as it already exists on server as "${duplicateFilename}"`;
+        toast.show();
+
+        // Remove the file from Uppy to prevent upload
+        uppy.removeFile(file.id);
+        console.log(`Removed duplicate file "${file.name}" from upload queue`);
+
+        return; // Exit early as we removed the file
+    } else {
+        console.log(`No duplicates found for "${file.name}", proceeding with upload`);
     }
 });
 
@@ -415,6 +420,8 @@ uppy.on('complete', (result) => {
     // Reset the counter when upload is complete
     const skippedFiles = skippedDuplicateFiles;
     skippedDuplicateFiles = 0;
+    // Clear the duplicate file cache after upload completes
+    existingFilesCache = null;
     
     if (result.successful.length > 0 || skippedFiles > 0) {
         // Show toast message for successful upload
@@ -3208,3 +3215,82 @@ function updateViewLayout(filter) {
         }
     }
 }
+
+// --- Upload progress modal logic ---
+function showUploadBlockerModal() {
+    const modal = document.getElementById('uploadBlockerModal');
+    if (modal) {
+        modal.style.display = 'block';
+        document.body.style.overflow = 'hidden'; // Prevent scrolling
+    }
+}
+function hideUploadBlockerModal() {
+    const modal = document.getElementById('uploadBlockerModal');
+    if (modal) {
+        modal.style.display = 'none';
+        document.body.style.overflow = '';
+    }
+    // Reset progress bar for next upload
+    const bar = document.getElementById('uploadProgressBar');
+    if (bar) {
+        bar.style.width = '0%';
+        bar.textContent = '0%';
+    }
+    const label = document.getElementById('uploadProgressText');
+    if (label) {
+        label.textContent = 'Uploading...';
+    }
+}
+function updateUploadProgress(percent, text) {
+    const bar = document.getElementById('uploadProgressBar');
+    const label = document.getElementById('uploadProgressText');
+    if (bar) {
+        bar.style.width = percent + '%';
+        bar.textContent = Math.round(percent) + '%';
+    }
+    if (label && text) {
+        label.textContent = text;
+    }
+}
+// --- Uppy event hooks for blocking UI and showing progress ---
+let totalUploadBytes = 0;
+let totalBytesUploaded = 0;
+let uploadingFileIDs = new Set();
+let totalFilesInBatch = 0;
+
+uppy.on('upload', () => {
+    // Get all files that are not already uploaded or failed
+    const files = uppy.getFiles().filter(f => f.progress && !f.progress.uploadComplete && !f.error);
+    totalUploadBytes = files.reduce((sum, f) => sum + (f.size || 0), 0);
+    totalFilesInBatch = files.length;
+    uploadingFileIDs = new Set(files.map(f => f.id));
+    showUploadBlockerModal();
+    updateUploadProgress(0, `Uploading... (0 of ${totalFilesInBatch} files)`);
+});
+
+uppy.on('upload-progress', (file, progress) => {
+    // Use the set of file IDs captured at upload start
+    const files = uppy.getFiles().filter(f => uploadingFileIDs.has(f.id));
+    const uploaded = files.reduce((sum, f) => sum + (f.progress && f.progress.bytesUploaded ? f.progress.bytesUploaded : 0), 0);
+    let percent = totalUploadBytes ? (uploaded / totalUploadBytes) * 100 : 0;
+    if (percent > 99.5 && percent < 100) percent = 99.5;
+    // Count how many files are fully uploaded
+    const completed = files.filter(f => f.progress && f.progress.uploadComplete).length;
+    updateUploadProgress(percent, `Uploading... (${completed} of ${totalFilesInBatch} files)`);
+});
+
+uppy.on('upload-success', (file, response) => {
+    // Do not update progress bar here, let 'upload-progress' and 'complete' handle it
+});
+
+uppy.on('upload-error', (file, error, response) => {
+    updateUploadProgress(0, 'Upload failed');
+    setTimeout(hideUploadBlockerModal, 1200);
+    setTimeout(hideUploadBlockerModal, 5000);
+});
+
+uppy.on('complete', (result) => {
+    updateUploadProgress(100, 'Upload complete!');
+    setTimeout(hideUploadBlockerModal, 800);
+    setTimeout(hideUploadBlockerModal, 5000);
+});

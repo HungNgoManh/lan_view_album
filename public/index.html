@@ -97,7 +97,7 @@
             }
         }
         .uppy-Dashboard-Item-preview {
-            display: none;
+            display:flex;
         }
         .uppy-Dashboard-files {
             margin: 0;
@@ -1175,8 +1175,11 @@
     </div>
   </div>
   <div class="tab-pane fade" id="upload" role="tabpanel" aria-labelledby="upload-tab">
-    <!-- Uppy Upload Area -->
-    <div id="drag-drop-area" class="mb-5"></div>
+    <div class="upload-card">
+      <h2>Upload Files</h2>
+      <p class="text-muted">Drag & drop files here or click to select.</p>
+      <div id="drag-drop-area"></div>
+    </div>
   </div>
 </div>
 
@@ -1236,6 +1239,21 @@
       <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
     </div>
     <div class="toast-body" id="toastMessage">
+    </div>
+  </div>
+</div>
+
+<!-- Modal overlay for upload progress -->
+<div id="uploadBlockerModal" class="modal" tabindex="-1" style="display:none; background:rgba(0,0,0,0.4); z-index:20000;">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content p-4 text-center" style="background:rgba(255,255,255,0.95); border-radius:1rem; box-shadow:0 0 20px #0002;">
+      <div class="mb-3">
+        <div class="spinner-border text-primary" role="status" style="width:3rem; height:3rem;"></div>
+      </div>
+      <div class="progress mb-2" style="height: 1.5rem;">
+        <div id="uploadProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width:0%">0%</div>
+      </div>
+      <div id="uploadProgressText" class="fw-bold">Uploading...</div>
     </div>
   </div>
 </div>
@@ -1340,6 +1358,23 @@ function logout() {
         window.location.href = '/login.html';
     });
 }
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  function fixUppyHeight() {
+    if (window.innerWidth < 768) {
+      var uppyOuter = document.querySelector('#drag-drop-area > [role="presentation"]');
+      if (uppyOuter) {
+        uppyOuter.style.height = 'auto';
+        uppyOuter.style.minHeight = '0';
+        uppyOuter.style.maxHeight = 'none';
+      }
+    }
+  }
+  fixUppyHeight();
+  window.addEventListener('resize', fixUppyHeight);
+});
 </script>
 </body>
 </html>
