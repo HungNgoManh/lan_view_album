@@ -520,11 +520,11 @@ const MAX_CONCURRENT_VIDEO_THUMBNAILS = 1; // Limit concurrent video processing
 // Adjust files per page based on screen size
 function updateFilesPerPage() {
     if (window.innerWidth < 768) {
-        // Mobile: 4 columns × 6 rows = 24 items
-        filesPerPage = 24;
+        // Mobile: 4 columns × 7 rows = 28 items
+        filesPerPage = 28;
     } else {
-        // Tablet/Desktop: 10 columns × 5 rows = 50 items
-        filesPerPage = 50;
+        // Tablet/Desktop: 10 columns × 6 rows = 60 items
+        filesPerPage = 60;
     }
     console.log(`Screen width: ${window.innerWidth}px, Files per page: ${filesPerPage}`);
 }
