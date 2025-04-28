@@ -489,7 +489,7 @@ function getUrlParameter(name) {
 }
 
 // Global Variables
-let currentFilter = 'all';
+let currentFilter = 'image'; // Default to Photos tab
 let currentPage = 1;
 let hasMore = true;
 let isLoading = false;
@@ -1152,32 +1152,29 @@ function updateTabLabels(counts = {}) {
     const defaultCounts = {
         all: 0,
         images: 0,
-        videos: 0,
-        others: 0
+        videos: 0
     };
     
     // Merge with defaults to ensure all properties exist
     const mergedCounts = {...defaultCounts, ...counts};
     
     // If all individual counts are 0 but 'all' is not, calculate it
-    if (mergedCounts.images === 0 && mergedCounts.videos === 0 && mergedCounts.others === 0 && mergedCounts.all > 0) {
+    if (mergedCounts.images === 0 && mergedCounts.videos === 0 && mergedCounts.all > 0) {
         // This might happen if the server only provided the 'all' count
         console.warn('Individual counts are 0 but total is not, counts might be incomplete');
     } else if (mergedCounts.all === 0) {
         // If 'all' is 0, calculate it from the sum of individuals
-        mergedCounts.all = mergedCounts.images + mergedCounts.videos + mergedCounts.others;
+        mergedCounts.all = mergedCounts.images + mergedCounts.videos;
     }
     
     // Update the tab labels
     const allTab = document.querySelector('[data-filter="all"]');
     const imageTab = document.querySelector('[data-filter="image"]');
     const videoTab = document.querySelector('[data-filter="video"]');
-    const otherTab = document.querySelector('[data-filter="other"]');
 
     if (allTab) allTab.textContent = `All Files (${mergedCounts.all})`;
     if (imageTab) imageTab.textContent = `Photos (${mergedCounts.images})`;
     if (videoTab) videoTab.textContent = `Videos (${mergedCounts.videos})`;
-    if (otherTab) otherTab.textContent = `Documents (${mergedCounts.others})`;
 }
 
 // New function to process files one by one
@@ -1863,7 +1860,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const urlFilter = getUrlParameter('filter');
     const urlPage = parseInt(getUrlParameter('page')) || 1;
     const savedState = localStorage.getItem('appState');
-    let initialFilter = 'all';
+    let initialFilter = urlFilter || 'image';
+    if (initialFilter === 'all' || initialFilter === 'other') {
+        initialFilter = 'image'; // Default to Photos
+    }
+    currentFilter = initialFilter;
     let initialPage = 1;
 
     if (urlFilter) {
