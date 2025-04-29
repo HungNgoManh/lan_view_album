@@ -127,7 +127,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
                 })
                 .screenshots({
                     count: 1,
-                    timemarks: ['3'], // 3 seconds in
+                    timemarks: ['2'], // 2 seconds in
                     filename: filename + '.jpg',
                     folder: THUMB_DIR
                 });
@@ -550,7 +550,7 @@ app.post('/api/generate-thumbnail', async (req, res) => {
         })
         .screenshots({
             count: 1,
-            timemarks: ['3'],
+            timemarks: ['1'],
             filename: filename + '.jpg',
             folder: THUMB_DIR
         });
