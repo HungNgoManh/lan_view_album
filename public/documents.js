@@ -43,6 +43,13 @@ document.addEventListener('DOMContentLoaded', async function() {
       size.className = 'doc-size';
       size.textContent = formatSize(file.size || 0);
       li.appendChild(size);
+      // Add Delete button
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn btn-danger btn-sm ms-auto mt-2';
+      delBtn.innerHTML = '<i class="bi bi-trash"></i>';
+      delBtn.title = 'Delete';
+      delBtn.onclick = function() { handleDeleteDocument(file.filename, li); };
+      li.appendChild(delBtn);
       list.appendChild(li);
     });
     renderPagination();
