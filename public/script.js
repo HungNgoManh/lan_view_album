@@ -587,18 +587,9 @@ async function loadGallery(filter = 'image', page = 1, maintainScroll = false) {
         // Clear existing content when changing pages with pagination
         gallery.innerHTML = '';
         
-        // Add loading indicator
-        const loadingIndicator = document.createElement('div');
-        loadingIndicator.id = 'pageLoadingIndicator';
-        loadingIndicator.className = 'col-12 d-flex justify-content-center align-items-center py-5';
-        loadingIndicator.innerHTML = `
-            <div class="d-flex flex-column align-items-center justify-content-center mx-auto w-100" style="min-height: 120px; text-align: center;">
-                <div class="spinner-border text-primary mb-3" role="status" style="width:3rem;height:3rem;min-width:3rem;min-height:3rem;max-width:3rem;max-height:3rem;"></div>
-                <span class="fw-semibold text-primary">Loading page ${page}...</span>
-            </div>
-        `;
-        gallery.appendChild(loadingIndicator);
-    } 
+        // Add loading indicator here if needed, need to determine the design here
+
+    }
     // Clear existing content if this is first page
     else if (gallery && page === 1) {
         // Clear existing content completely before adding new content
