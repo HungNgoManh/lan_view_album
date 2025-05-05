@@ -75,30 +75,30 @@ app.post('/upload', upload.single('file'), async (req, res) => {
         
         console.log(`🔍 Checking for duplicates of '${originalname}', stored as '${filename}'`);
 
-        // Optional duplicate check - can be enabled/disabled as needed
+        // Debug: log all files and lengths
+        existingFiles.forEach(f => console.log(`'${f}' (length: ${f.length})`));
+        console.log(`filename to check: '${filename}' (length: ${filename.length})`);
+
+        // Skip the just-uploaded file when checking for duplicates
         let isDuplicate = false;
-        let duplicateFile = '';
-        
         for (const existingFile of existingFiles) {
-            if (existingFile === filename) continue;
-            const existingOriginalName = existingFile.includes('_') ? 
-                existingFile.substring(existingFile.indexOf('_') + 1) : 
-                existingFile;
-            if (existingOriginalName === originalname) {
+            if (existingFile === filename) continue; // skip the just-uploaded file
+            if (existingFile === filename) {
                 isDuplicate = true;
-                duplicateFile = existingFile;
                 break;
             }
         }
-        
         if (isDuplicate) {
+            console.log('Duplicate detected!');
             await fs.remove(tempPath);
             return res.status(400).json({ 
                 success: false, 
-                message: `This file already exists as ${duplicateFile}. Please rename it or upload a different file.`,
+                message: `This file already exists for this device. Please rename it or upload a different file.`,
                 isDuplicate: true,
-                duplicateFile: duplicateFile
+                duplicateFile: filename
             });
+        } else {
+            console.log('No duplicate, proceeding with upload.');
         }
 
         // === VIDEO THUMBNAIL GENERATION ===

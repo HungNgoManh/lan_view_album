@@ -1122,23 +1122,7 @@
   <h2 class="h5 mb-0"><img src="/logo.png" alt="Logo" style="height: 70px; width: auto; margin-left:auto; margin-right:auto;"></h2>
 
   <!-- Tabs - with smaller size -->
-  <ul class="nav nav-tabs ios-tabs small-tabs me-2" id="myTab" role="tablist">
-    <li class="nav-item" role="presentation">
-      <button class="nav-link active py-1 px-2" id="view-tab" data-bs-toggle="tab" data-bs-target="#view" type="button" role="tab" aria-controls="view" aria-selected="true">
-        <i class="bi bi-images"></i> View
-      </button>
-    </li>
-    <li class="nav-item" role="presentation">
-      <button class="nav-link py-1 px-2" id="upload-tab" data-bs-toggle="tab" data-bs-target="#upload" type="button" role="tab" aria-controls="upload" aria-selected="false">
-        <i class="bi bi-upload"></i> Upload
-      </button>
-    </li>
-    <li class="nav-item" role="presentation">
-      <button class="nav-link py-1 px-2" id="device-settings-btn" type="button">
-        <i class="bi bi-gear"></i> Device
-      </button>
-    </li>
-  </ul>
+  <!-- Removed View and Upload tabs for simplicity -->
 </div>
 
 <!-- Filter Tabs -->
@@ -1172,13 +1156,6 @@
                 <!-- Pagination info will be inserted here -->
             </div>
         </div>
-    </div>
-  </div>
-  <div class="tab-pane fade" id="upload" role="tabpanel" aria-labelledby="upload-tab">
-    <div class="upload-card">
-      <h2>Upload Files</h2>
-      <p class="text-muted">Drag & drop files here or click to select.</p>
-      <div id="drag-drop-area"></div>
     </div>
   </div>
 </div>
@@ -1257,6 +1234,11 @@
     </div>
   </div>
 </div>
+
+<!-- Add floating + button for upload page access -->
+<a href="upload.html" class="btn btn-primary position-fixed bottom-0 end-0 m-4 rounded-circle" style="width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; font-size: 24px;">
+    <i class="bi bi-plus"></i>
+</a>
 
 <!-- Add script.js after all other scripts -->
 <script src="script.js"></script>
