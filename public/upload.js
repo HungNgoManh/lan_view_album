@@ -129,7 +129,6 @@ document.addEventListener('DOMContentLoaded', function() {
       hideProgressAfterFinish: true,
       showLinkToFileUploadResult: false,
       showRemoveButtonAfterComplete: true,
-      thumbnailWidth: false,
       showSelectedFiles: true,
       showSelectedFilesPanel: true
     })
@@ -247,7 +246,7 @@ function openDeviceNameSettings() {
     // Create Bootstrap modal for device naming
     const modalHtml = `
     <div class="modal fade" id="deviceSettingsModal" tabindex="-1" aria-labelledby="deviceSettingsModalLabel" aria-hidden="true">
-      <div class="modal-dialog modal-sm">
+      <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title" id="deviceSettingsModalLabel">Device Settings</h5>
@@ -297,23 +296,17 @@ function openDeviceNameSettings() {
             }
         }
         modal.hide();
-        // Clean up the modal from DOM
-        setTimeout(() => {
-            document.body.removeChild(modalContainer);
-        }, 500);
+        // Remove modal from DOM only after it's fully hidden
+        document.getElementById('deviceSettingsModal').addEventListener('hidden.bs.modal', () => {
+            if (modalContainer.parentNode) {
+                document.body.removeChild(modalContainer);
+            }
+        }, { once: true });
     });
     // Handle logout button click
     document.getElementById('logoutBtnSettings').addEventListener('click', () => {
         modal.hide();
         // Call the logout function
         logout();
-    });
-    // Clean up the modal when it's closed
-    document.getElementById('deviceSettingsModal').addEventListener('hidden.bs.modal', () => {
-        setTimeout(() => {
-            if (modalContainer.parentNode) {
-                document.body.removeChild(modalContainer);
-            }
-        }, 500);
     });
 } 

@@ -2629,21 +2629,6 @@ function createPlaceholderThumbnails(count = 50) {
     return fragment;
 }
 
-// Add this near the end of your script where other event listeners are initialized
-document.addEventListener('DOMContentLoaded', function() {
-    // Add click handler for device settings button
-    const deviceSettingsBtn = document.getElementById('device-settings-btn');
-    if (deviceSettingsBtn) {
-        deviceSettingsBtn.addEventListener('click', function() {
-            openDeviceNameSettings();
-        });
-    }
-    
-    // Display current device ID in the console when the page loads
-    const currentDeviceId = getOrCreateDeviceId();
-    console.log('Current device ID:', currentDeviceId);
-});
-
 /**
  * Preloads video metadata for videos visible in the viewport
  * This helps thumbnail generation be more successful

@@ -86,12 +86,68 @@
 }
 
 .uppy-Dashboard-Item-preview {
-  width: 0 !important;
-  min-width: 0 !important;
-  max-width: 0 !important;
+  width: 48px !important;
+  height: 48px !important;
+  min-width: 48px !important;
+  min-height: 48px !important;
+  max-width: 48px !important;
+  max-height: 48px !important;
   overflow: hidden !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  background: none !important;
-  border: none !important;
+  background: #f8f9fa !important;
+  border-radius: 8px !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Uppy custom file type icons */
+.uppy-Dashboard-Item-preview--icon[data-uppy-file-type="application/pdf"] {
+  background-image: url('icons/pdf-icon.svg');
+  background-size: 60% 60%;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+.uppy-Dashboard-Item-preview--icon[data-uppy-file-type="application/msword"],
+.uppy-Dashboard-Item-preview--icon[data-uppy-file-type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"] {
+  background-image: url('icons/word-icon.svg');
+  background-size: 60% 60%;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+.uppy-Dashboard-Item-preview--icon[data-uppy-file-type^="video/"] {
+  background-image: url('icons/video-icon.svg');
+  background-size: 60% 60%;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+.uppy-Dashboard-Item-preview--icon[data-uppy-file-type^="audio/"] {
+  background-image: url('icons/audio-icon.svg');
+  background-size: 60% 60%;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+.uppy-Dashboard-Item-preview--icon[data-uppy-file-type="application/zip"],
+.uppy-Dashboard-Item-preview--icon[data-uppy-file-type="application/x-zip-compressed"] {
+  background-image: url('icons/zip-icon.svg');
+  background-size: 60% 60%;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+.uppy-Dashboard-Item-preview--icon[data-uppy-file-type^="image/"] {
+  background-image: url('icons/image-icon.svg');
+  background-size: 60% 60%;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+#backToTopBtn {
+  z-index: 1000;
+  opacity: 0.7;
+  transition: opacity 0.3s ease-in-out;
+  bottom: 80px !important; /* Move it above the + button */
+  right: 32px !important;
+}
+
+#backToTopBtn:hover {
+  opacity: 1;
 } 
