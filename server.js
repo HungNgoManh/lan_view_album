@@ -558,5 +558,11 @@ app.post('/api/generate-thumbnail', async (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
+    const os = require('os');
+    const networkInterfaces = os.networkInterfaces();
+    const localIP = Object.values(networkInterfaces)
+        .flat()
+        .find(interface => !interface.internal && interface.family === 'IPv4')?.address;
     console.log(`🚀 Server running at http://localhost:${PORT}`);
+    console.log(`🌐 Local network: http://${localIP}:${PORT}`);
 });
