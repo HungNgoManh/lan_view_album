@@ -2745,3 +2745,17 @@ function updateViewLayout(filter) {
         }
     }
 }
+
+// Ensure correct gallery view on browser back/forward navigation
+window.addEventListener('pageshow', function(event) {
+  // Always force grid view for image/video filters
+  const urlFilter = getUrlParameter('filter');
+  let filter = urlFilter || 'image';
+  if (filter === 'all' || filter === 'other') {
+    filter = 'image';
+  }
+  currentFilter = filter;
+  updateFilterButtonState(filter);
+  updateViewLayout(filter);
+  loadGallery(filter, 1);
+});

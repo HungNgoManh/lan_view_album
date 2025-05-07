@@ -660,13 +660,16 @@
         }
         /* Enhanced filter tabs */
         .filter-container {
+            position: sticky;
+            top: 0;
+            z-index: 1050;
+            background: transparent;
+            padding-top: 0.5rem;
+            padding-bottom: 0.5rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            border-bottom: 1px solid transparent;
             display: flex;
             justify-content: center;
-            padding: 0.5rem;
-            background-color: transparent;
-            border-radius: 12px;
-            margin-top: 0.5rem;
-            margin-bottom: 1.5rem;
         }
         .filter-tabs {
             background-color: #e9ecef;
