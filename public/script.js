@@ -56,8 +56,8 @@ const MAX_CONCURRENT_VIDEO_THUMBNAILS = 1; // Limit concurrent video processing
 // Adjust files per page based on screen size
 function updateFilesPerPage() {
     if (window.innerWidth < 768) {
-        // Mobile: 4 columns × 7 rows = 28 items
-        filesPerPage = 28;
+        // Mobile: 4 columns × 8 rows = 32 items
+        filesPerPage = 32;
     } else {
         // Tablet/Desktop: 10 columns × 5 rows = 50 items
         filesPerPage = 50;

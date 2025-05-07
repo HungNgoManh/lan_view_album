@@ -3,9 +3,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs-extra');
-const sharp = require('sharp');
 const cors = require('cors');
-const { spawn } = require('child_process');
 const ffmpeg = require('fluent-ffmpeg');
 
 const app = express();
@@ -156,7 +154,7 @@ app.get('/uploads', async (req, res) => {
     try {
         const filter = req.query.filter || 'all';
         const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 26;
+        const limit = parseInt(req.query.limit) || 32;
         const checkDuplicates = req.query.checkDuplicates === 'true';
         
         const files = await fs.readdir(UPLOAD_DIR);
