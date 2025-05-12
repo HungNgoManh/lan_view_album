@@ -40,9 +40,18 @@
 
 /* Custom gallery grid columns */
 @media (min-width: 992px) {
+  #gallery {
+    display: grid !important;
+    grid-template-columns: repeat(10, 1fr);
+    gap: 5px; /* Equal spacing for rows and columns */
+    margin: 0 !important;
+    padding: 0 !important;
+  }
   .gallery-col {
-    flex: 0 0 10%;
-    max-width: 10%;
+    max-width: 100%;
+    flex: unset;
+    padding: 0;
+    margin: 0;
   }
 }
 @media (max-width: 767.98px) {
