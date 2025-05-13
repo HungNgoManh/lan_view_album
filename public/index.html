@@ -72,10 +72,13 @@
             margin: auto;
         }
         #modalImage {
-            max-width: 100%;
-            max-height: 100%;
+            max-width: 90vw;
+            max-height: 80vh;
             width: auto;
             height: auto;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
         }
         .carousel-control-prev-icon,
         .carousel-control-next-icon {
@@ -204,10 +207,13 @@
             justify-content: center;
         }
         #videoModal video {
-            max-width: 100%;
-            max-height: 100%;
+            max-width: 90vw;
+            max-height: 80vh;
             width: auto;
             height: auto;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
         }
         #videoModal .carousel-item {
             display: none; /* Hide all items by default */
@@ -466,14 +472,10 @@
             100% { transform: translate(-50%, -50%) rotate(360deg); }
         }
         /* Improved modal appearance */
-        .modal-dialog {
-            max-width: 90vw;
-            margin: 1.75rem auto;
-        }
-        @media (min-width: 992px) {
-            .modal-dialog {
-                max-width: 80vw;
-            }
+        #videoModal .modal-dialog {
+            max-width: 98vw;
+            width: auto;
+            margin: 1.5vh auto;
         }
         .modal-content {
             background-color: rgba(255, 255, 255, 0.95);
@@ -1118,6 +1120,68 @@
         
         
 
+        #imageModal .modal-dialog {
+            max-width: 98vw;
+            width: auto;
+            margin: 1.5vh auto;
+        }
+        #imageModal .modal-content {
+            max-width: 98vw;
+            width: auto;
+            margin: 0 auto;
+            box-sizing: border-box;
+            padding: 0;
+        }
+        #imageModal .modal-body {
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            max-width: 98vw;
+            max-height: 80vh;
+            overflow: auto;
+        }
+        #modalImage {
+            max-width: 98vw;
+            max-height: 80vh;
+            width: auto;
+            height: auto;
+            display: block;
+            margin: 0 auto;
+            object-fit: contain;
+            box-sizing: border-box;
+        }
+        #videoModal .modal-dialog {
+            max-width: 98vw;
+            width: auto;
+            margin: 1.5vh auto;
+        }
+        #videoModal .modal-content {
+            max-width: 98vw;
+            width: auto;
+            margin: 0 auto;
+            box-sizing: border-box;
+            padding: 0;
+        }
+        #videoModal .modal-body {
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            max-width: 98vw;
+            max-height: 80vh;
+            overflow: auto;
+        }
+        #videoModal video {
+            max-width: 98vw;
+            max-height: 80vh;
+            width: auto;
+            height: auto;
+            display: block;
+            margin: 0 auto;
+            object-fit: contain;
+            box-sizing: border-box;
+        }
     </style>
 </head>
 <body class="p-3">
