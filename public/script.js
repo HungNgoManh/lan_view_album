@@ -1445,6 +1445,22 @@ document.addEventListener('DOMContentLoaded', function() {
     // Add scroll direction detection
     window.removeEventListener('scroll', handleScrollDirection);
     window.addEventListener('scroll', handleScrollDirection);
+
+    // Fetch document count and update the Documents tab
+    fetch('/uploads?filter=other&countOnly=true')
+        .then(res => res.json())
+        .then(data => {
+            // Adjust this depending on your API response structure
+            const count = data.totalFiles || (data.files ? data.files.length : 0);
+            const docTab = document.getElementById('documentsTabLink');
+            if (docTab) {
+                docTab.textContent = `Documents (${count})`;
+            }
+        })
+        .catch(err => {
+            // Optionally handle error
+            console.warn('Could not fetch document count:', err);
+        });
 });
 
 // Function to handle loading indicator clicks
