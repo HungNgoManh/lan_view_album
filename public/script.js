@@ -1488,7 +1488,7 @@ function addBackToTopButton() {
     
     // Show button when user scrolls down past header
     window.addEventListener('scroll', function() {
-        const headerHeight = document.querySelector('h2').offsetHeight + 50;
+        const headerHeight = document.querySelector('h2').offsetHeight + 200;
         if (window.scrollY > headerHeight) {
             backToTopBtn.classList.remove('d-none');
         } else {
