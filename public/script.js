@@ -1488,7 +1488,7 @@ function addBackToTopButton() {
     
     // Show button when user scrolls down past header
     window.addEventListener('scroll', function() {
-        const headerHeight = document.querySelector('h2').offsetHeight + 200;
+        const headerHeight = document.querySelector('h2').offsetHeight + 50;
         if (window.scrollY > headerHeight) {
             backToTopBtn.classList.remove('d-none');
         } else {
@@ -2107,4 +2107,93 @@ window.addEventListener('pageshow', function(event) {
   updateFilterButtonState(filter);
   updateViewLayout(filter);
   loadGallery(filter, 1);
+});
+
+// Device Settings modal logic for index.html
+function getOrCreateDeviceId() {
+    let deviceId = localStorage.getItem('device_id');
+    const customDeviceName = localStorage.getItem('custom_device_name');
+    if (customDeviceName) {
+        return `${customDeviceName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
+    }
+    if (!deviceId) {
+        const userAgent = navigator.userAgent;
+        const screenWidth = window.screen.width;
+        const screenHeight = window.screen.height;
+        const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const language = navigator.language;
+        const platform = navigator.platform;
+        const colorDepth = window.screen.colorDepth;
+        const pixelRatio = window.devicePixelRatio || 1;
+        const hardwareConcurrency = navigator.hardwareConcurrency || 'unknown';
+        const vendor = navigator.vendor || '';
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+        const deviceType = isMobile ? 'mobile' : 'desktop';
+        const deviceSignature = `${userAgent}-${screenWidth}x${screenHeight}-${timeZone}-${language}-${platform}-${colorDepth}-${pixelRatio}-${hardwareConcurrency}-${vendor}-${deviceType}`;
+        let hash = 0;
+        for (let i = 0; i < deviceSignature.length; i++) {
+            const char = deviceSignature.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash;
+        }
+        let prefix = 'd_';
+        if (userAgent.includes('Windows')) prefix = 'win';
+        else if (userAgent.includes('Macintosh') || userAgent.includes('Mac OS')) prefix = 'mac';
+        else if (userAgent.includes('Linux')) prefix = 'linux';
+        else if (userAgent.includes('iPhone')) prefix = 'iphone';
+        else if (userAgent.includes('iPad')) prefix = 'ipad';
+        else if (userAgent.includes('Android')) prefix = 'android';
+        deviceId = `${prefix}_${Math.abs(hash).toString(16).substring(0, 8)}`;
+        localStorage.setItem('device_id', deviceId);
+    }
+    return deviceId;
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  const deviceSettingsBtn = document.getElementById('deviceSettingsBtn');
+  if (deviceSettingsBtn) {
+    deviceSettingsBtn.addEventListener('click', function() {
+      // Populate modal fields
+      const currentDeviceId = getOrCreateDeviceId() || 'unknown';
+      const currentCustomName = localStorage.getItem('custom_device_name') || '';
+      document.getElementById('currentDeviceId').textContent = currentDeviceId;
+      document.getElementById('deviceNameSettingsInput').value = currentCustomName;
+      // Show modal
+      const modal = new bootstrap.Modal(document.getElementById('deviceSettingsModal'));
+      modal.show();
+    });
+  }
+  // Save device name
+  const saveBtn = document.getElementById('saveDeviceSettings');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', function() {
+      const deviceName = document.getElementById('deviceNameSettingsInput').value.trim();
+      if (deviceName) {
+        localStorage.setItem('custom_device_name', deviceName);
+        const newDeviceId = `device_${deviceName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
+        localStorage.setItem('device_id', newDeviceId);
+        document.getElementById('currentDeviceId').textContent = newDeviceId;
+        // Optionally show a toast or feedback
+        if (window.showToast) {
+          showToast('success', `Device name set to "${deviceName}"`);
+        }
+      }
+      // Hide modal
+      const modal = bootstrap.Modal.getInstance(document.getElementById('deviceSettingsModal'));
+      if (modal) modal.hide();
+    });
+  }
+  // Logout button
+  const logoutBtn = document.getElementById('logoutBtnSettings');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', function() {
+      // Hide modal
+      const modal = bootstrap.Modal.getInstance(document.getElementById('deviceSettingsModal'));
+      if (modal) modal.hide();
+      // Clear auth data and redirect
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('auth_info');
+      window.location.href = '/login.html';
+    });
+  }
 });
