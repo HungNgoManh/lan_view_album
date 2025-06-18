@@ -200,6 +200,10 @@
                         // Store token in localStorage
                         localStorage.setItem('auth_token', data.token);
                         
+                        // Set device ID and custom device name to username
+                        localStorage.setItem('custom_device_name', data.username);
+                        localStorage.setItem('device_id', data.username);
+                        
                         // Calculate expiry if remember me is checked
                         const tokenExpiry = rememberMe ? Date.now() + (30 * 24 * 60 * 60 * 1000) : null; // 30 days or null
                         

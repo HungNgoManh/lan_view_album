@@ -12,6 +12,44 @@ const PORT = 3000;
 const UPLOAD_DIR = path.join(__dirname, 'public/uploads');
 const THUMB_DIR = path.join(__dirname, 'public/thumbnails');
 
+// For token storage - moved here so it can be accessed by middleware
+const tokens = new Map();
+
+const USERS_FILE = path.join(__dirname, 'users.json');
+
+// Helper to load users from file
+function loadUsers() {
+    try {
+        if (fs.existsSync(USERS_FILE)) {
+            return fs.readJsonSync(USERS_FILE);
+        } else {
+            // If file doesn't exist, create with default admin
+            const defaultUsers = [
+                { username: 'admin', password: 'admin123', isAdmin: true }
+            ];
+            fs.writeJsonSync(USERS_FILE, defaultUsers, { spaces: 2 });
+            return defaultUsers;
+        }
+    } catch (err) {
+        console.error('Failed to load users.json:', err);
+        return [
+            { username: 'admin', password: 'admin123', isAdmin: true }
+        ];
+    }
+}
+
+// Helper to save users to file
+function saveUsers(users) {
+    try {
+        fs.writeJsonSync(USERS_FILE, users, { spaces: 2 });
+    } catch (err) {
+        console.error('Failed to save users.json:', err);
+    }
+}
+
+// Load users at startup
+let users = loadUsers();
+
 // Ensure upload folders exist
 fs.ensureDirSync(UPLOAD_DIR);
 fs.ensureDirSync(THUMB_DIR);
@@ -350,12 +388,6 @@ app.post('/rename', async (req, res) => {
 
 // Authentication endpoints - add after the other routes
 // Simple in-memory user storage (replace with database in production)
-let users = [
-    { username: 'admin', password: 'admin123', isAdmin: true }
-];
-
-// For token storage
-const tokens = new Map();
 
 // Login endpoint
 app.post('/api/login', (req, res) => {
@@ -447,6 +479,9 @@ app.post('/api/users', (req, res) => {
     // Add new user
     users.push({ username, password, isAdmin: !!isAdmin });
     
+    // Save users to file
+    saveUsers(users);
+    
     res.json({ success: true });
 });
 
@@ -482,6 +517,9 @@ app.put('/api/users/:username', (req, res) => {
         users[userIndex].isAdmin = isAdmin;
     }
     
+    // Save users to file
+    saveUsers(users);
+    
     res.json({ success: true });
 });
 
@@ -516,6 +554,9 @@ app.delete('/api/users/:username', (req, res) => {
     }
     
     users.splice(userIndex, 1);
+    
+    // Save users to file
+    saveUsers(users);
     
     res.json({ success: true });
 });
