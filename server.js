@@ -595,6 +595,46 @@ app.post('/api/generate-thumbnail', async (req, res) => {
         });
 });
 
+// Hex decode API endpoint
+app.post('/api/decode-hex', express.json(), (req, res) => {
+    const { hex } = req.body;
+    if (!hex || typeof hex !== 'string') {
+        return res.status(400).json({ error: 'No hex string provided' });
+    }
+    try {
+        // Remove spaces and decode
+        const cleanHex = hex.replace(/\s+/g, '');
+        if (!/^[0-9a-fA-F]*$/.test(cleanHex)) {
+            return res.status(400).json({ error: 'Invalid hex string' });
+        }
+        const bytes = Buffer.from(cleanHex, 'hex');
+        const decoded = bytes.toString('utf8');
+        res.json({ decoded });
+    } catch (e) {
+        res.status(400).json({ error: 'Decode error: ' + e.message });
+    }
+});
+
+// Invalid UTF-8 generator endpoint
+app.post('/api/generate-invalid-utf8', express.json(), (req, res) => {
+    const { hex } = req.body;
+    if (!hex || typeof hex !== 'string') {
+        return res.status(400).json({ error: 'No hex string provided' });
+    }
+    try {
+        const cleanHex = hex.replace(/\s+/g, '');
+        if (!/^[0-9a-fA-F]*$/.test(cleanHex)) {
+            return res.status(400).json({ error: 'Invalid hex string' });
+        }
+        const bytes = Buffer.from(cleanHex, 'hex');
+        // Return as latin1 so every byte is mapped to a JS string character
+        const invalidUtf8 = bytes.toString('latin1');
+        res.json({ invalidUtf8 });
+    } catch (e) {
+        res.status(400).json({ error: 'Error: ' + e.message });
+    }
+});
+
 // Start server
 app.listen(PORT, () => {
     const os = require('os');

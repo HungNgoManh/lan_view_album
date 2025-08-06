@@ -134,11 +134,11 @@ async function loadGallery(filter = 'image', page = 1, maintainScroll = false) {
             </div>
         `;
         gallery.appendChild(loadingIndicator);
-    } 
+    }
     // Clear existing content if this is first page
     else if (gallery && page === 1) {
         // Clear existing content completely before adding new content
-        gallery.innerHTML = '';        
+        gallery.innerHTML = '';
     }
 
     // Disable filter buttons while loading
@@ -1199,7 +1199,7 @@ function showVideoModal(url, filename, title = '') {
     // Handle video loading events
     video.onloadeddata = function() {
         loadingIndicator.remove();
-        };
+    };
     
     video.onerror = function() {
         loadingIndicator.remove();
